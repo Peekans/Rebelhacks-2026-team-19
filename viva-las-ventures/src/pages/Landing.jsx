@@ -8,6 +8,7 @@
 
 import { Link } from 'react-router-dom'
 import Logo from '../components/logo'
+import Banner from '../components/Banner'
 
 const FEATURES = [
   {
@@ -110,15 +111,9 @@ export default function Landing() {
             <Logo size={100} className="animate-float" />
           </div>
 
-          {/* Main heading */}
-          <h1 className="animate-fade-in-up animation-delay-200">
-            <span className="block text-6xl sm:text-7xl lg:text-8xl font-heading font-bold text-white tracking-tight leading-none">
-              VIVA LAS
-            </span>
-            <span className="block text-6xl sm:text-7xl lg:text-8xl font-heading font-bold text-white tracking-tight leading-none mt-2">
-              VENTURES
-            </span>
-          </h1>
+      <div className="animate-fade-in-up animation-delay-200">
+        <Banner width={600} className="mx-auto" />
+      </div>
 
           {/* Decorative line with sparkles — matches the branding */}
           <div className="flex items-center justify-center gap-3 my-6 animate-fade-in-up animation-delay-400">
