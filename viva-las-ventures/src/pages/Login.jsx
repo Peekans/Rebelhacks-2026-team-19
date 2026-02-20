@@ -29,6 +29,9 @@ export default function Login() {
   const [mode, setMode] = useState("login"); // "login" | "register"
   const isRegister = mode === "register";
 
+  // animation trigger
+  const [panelVisible, setPanelVisible] = useState(true);
+
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -37,7 +40,7 @@ export default function Login() {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
-  // Optional: /login?mode=register
+  // Allow /login?mode=register
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const requestedMode = params.get("mode");
@@ -45,11 +48,24 @@ export default function Login() {
     if (requestedMode === "login") setMode("login");
   }, [location.search]);
 
+  // Animate on mode change
+  useEffect(() => {
+    setPanelVisible(false);
+    const t = setTimeout(() => setPanelVisible(true), 40);
+    return () => clearTimeout(t);
+  }, [mode]);
+
   const canSubmit = useMemo(() => {
     if (!email.trim() || !password) return false;
     if (isRegister && !displayName.trim()) return false;
     return true;
   }, [email, password, displayName, isRegister]);
+
+  function toggleMode(nextMode) {
+    setError("");
+    setNotice("");
+    setMode(nextMode);
+  }
 
   async function handleEmailPassword(e) {
     e.preventDefault();
@@ -122,7 +138,7 @@ export default function Login() {
 
   return (
     <div className="min-h-screen bg-background overflow-hidden">
-      {/* Navbar (matches Landing) */}
+      {/* Navbar */}
       <nav className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-md border-b border-white/5">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-3">
@@ -142,11 +158,7 @@ export default function Login() {
 
             <button
               type="button"
-              onClick={() => {
-                setMode(isRegister ? "login" : "register");
-                setError("");
-                setNotice("");
-              }}
+              onClick={() => toggleMode(isRegister ? "login" : "register")}
               className="text-sm bg-primary text-background font-semibold px-5 py-2 rounded-full hover:bg-primary/90 transition-colors"
             >
               {isRegister ? "Log in" : "Sign up"}
@@ -155,9 +167,8 @@ export default function Login() {
         </div>
       </nav>
 
-      {/* Page */}
       <section className="relative pt-24 pb-16 px-6">
-        {/* Background glow like Landing */}
+        {/* Background glow */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <div className="absolute top-24 left-1/2 -translate-x-1/2 w-[900px] h-[900px] bg-cyan-glow/5 rounded-full blur-[140px]" />
           <div className="absolute bottom-0 right-1/4 w-[520px] h-[520px] bg-primary/5 rounded-full blur-[140px]" />
@@ -188,133 +199,157 @@ export default function Login() {
             </p>
           </div>
 
-          {/* Single centered card */}
+          {/* Center card */}
           <div className="mt-10 max-w-xl mx-auto">
             <div className="bg-surface/60 border border-white/5 rounded-2xl p-8 hover:border-cyan-glow/30 hover:bg-surface transition-all duration-300">
-              <h2 className="text-xl font-heading font-semibold text-white mb-2">
-                {isRegister ? "Sign up" : "Log in"}
-              </h2>
-              <p className="text-white/50 font-body mb-6">
-                {isRegister
-                  ? "Create an account in seconds."
-                  : "Continue with Google or sign in with email."}
-              </p>
-
-              {/* Google button */}
-              <button
-                type="button"
-                onClick={handleGoogleSignIn}
-                disabled={loading}
-                className="w-full border border-white/10 text-white font-medium px-6 py-3.5 rounded-full hover:bg-white/5 hover:border-white/20 transition-all flex items-center justify-center gap-3 disabled:opacity-60"
+              {/* Animated panel */}
+              <div
+                className={[
+                  "transition-all duration-300 ease-out",
+                  panelVisible
+                    ? "opacity-100 translate-y-0"
+                    : "opacity-0 translate-y-2",
+                ].join(" ")}
               >
-                <GoogleIcon />
-                Continue with Google
-              </button>
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h2 className="text-xl font-heading font-semibold text-white mb-2">
+                      {isRegister ? "Sign up" : "Log in"}
+                    </h2>
+                    <p className="text-white/50 font-body mb-6">
+                      {isRegister
+                        ? "Create an account in seconds."
+                        : "Continue with Google or sign in with email."}
+                    </p>
+                  </div>
 
-              <div className="my-6 flex items-center gap-3">
-                <div className="h-px flex-1 bg-white/10" />
-                <div className="text-xs text-white/30 uppercase tracking-widest">
-                  or
+                  <button
+                    type="button"
+                    onClick={() => toggleMode(isRegister ? "login" : "register")}
+                    className="text-xs text-accent/80 hover:text-white transition-colors"
+                  >
+                    {isRegister ? "Have an account?" : "Need an account?"}
+                  </button>
                 </div>
-                <div className="h-px flex-1 bg-white/10" />
-              </div>
 
-              <form onSubmit={handleEmailPassword} className="space-y-4">
-                {isRegister && (
-                  <Field label="Name">
+                {/* Google */}
+                <button
+                  type="button"
+                  onClick={handleGoogleSignIn}
+                  disabled={loading}
+                  className="w-full border border-white/10 text-white font-medium px-6 py-3.5 rounded-full hover:bg-white/5 hover:border-white/20 transition-all flex items-center justify-center gap-3 disabled:opacity-60"
+                >
+                  <GoogleIcon />
+                  Continue with Google
+                </button>
+
+                <div className="my-6 flex items-center gap-3">
+                  <div className="h-px flex-1 bg-white/10" />
+                  <div className="text-xs text-white/30 uppercase tracking-widest">
+                    or
+                  </div>
+                  <div className="h-px flex-1 bg-white/10" />
+                </div>
+
+                <form onSubmit={handleEmailPassword} className="space-y-4">
+                  {isRegister && (
+                    <Field label="Name">
+                      <input
+                        value={displayName}
+                        onChange={(e) => setDisplayName(e.target.value)}
+                        placeholder="Peyton"
+                        autoComplete="name"
+                        className={inputClass}
+                      />
+                    </Field>
+                  )}
+
+                  <Field label="Email">
                     <input
-                      value={displayName}
-                      onChange={(e) => setDisplayName(e.target.value)}
-                      placeholder="Peyton"
-                      autoComplete="name"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="you@email.com"
+                      type="email"
+                      autoComplete="email"
                       className={inputClass}
                     />
                   </Field>
-                )}
 
-                <Field label="Email">
-                  <input
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="you@email.com"
-                    type="email"
-                    autoComplete="email"
-                    className={inputClass}
-                  />
-                </Field>
+                  <Field label="Password">
+                    <input
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="••••••••"
+                      type="password"
+                      autoComplete={
+                        isRegister ? "new-password" : "current-password"
+                      }
+                      className={inputClass}
+                    />
 
-                <Field label="Password">
-                  <input
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    type="password"
-                    autoComplete={isRegister ? "new-password" : "current-password"}
-                    className={inputClass}
-                  />
-
-                  {!isRegister && (
-                    <button
-                      type="button"
-                      onClick={handleResetPassword}
-                      disabled={loading}
-                      className="mt-2 text-xs text-accent/80 hover:text-white transition-colors"
-                    >
-                      Forgot password?
-                    </button>
-                  )}
-                </Field>
-
-                {notice && (
-                  <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
-                    {notice}
-                  </div>
-                )}
-
-                {error && (
-                  <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
-                    {error}
-                  </div>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={!canSubmit || loading}
-                  className="w-full bg-primary text-background font-semibold px-8 py-3.5 rounded-full text-base hover:bg-primary/90 hover:scale-[1.01] transition-all shadow-lg shadow-primary/20 disabled:opacity-60 disabled:hover:scale-100"
-                >
-                  {loading
-                    ? "Please wait..."
-                    : isRegister
-                    ? "Create account"
-                    : "Log in"}
-                </button>
-
-                <div className="pt-2 text-center text-xs text-white/30 font-body">
-                  {isRegister ? (
-                    <>
-                      Already have an account?{" "}
+                    {!isRegister && (
                       <button
                         type="button"
-                        onClick={() => setMode("login")}
-                        className="text-cyan-glow hover:text-white transition-colors"
+                        onClick={handleResetPassword}
+                        disabled={loading}
+                        className="mt-2 text-xs text-accent/80 hover:text-white transition-colors"
                       >
-                        Log in
+                        Forgot password?
                       </button>
-                    </>
-                  ) : (
-                    <>
-                      Need an account?{" "}
-                      <button
-                        type="button"
-                        onClick={() => setMode("register")}
-                        className="text-cyan-glow hover:text-white transition-colors"
-                      >
-                        Sign up
-                      </button>
-                    </>
+                    )}
+                  </Field>
+
+                  {notice && (
+                    <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
+                      {notice}
+                    </div>
                   )}
-                </div>
-              </form>
+
+                  {error && (
+                    <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                      {error}
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={!canSubmit || loading}
+                    className="w-full bg-primary text-background font-semibold px-8 py-3.5 rounded-full text-base hover:bg-primary/90 hover:scale-[1.01] transition-all shadow-lg shadow-primary/20 disabled:opacity-60 disabled:hover:scale-100"
+                  >
+                    {loading
+                      ? "Please wait..."
+                      : isRegister
+                      ? "Create account"
+                      : "Log in"}
+                  </button>
+
+                  <div className="pt-2 text-center text-xs text-white/30 font-body">
+                    {isRegister ? (
+                      <>
+                        Already have an account?{" "}
+                        <button
+                          type="button"
+                          onClick={() => toggleMode("login")}
+                          className="text-cyan-glow hover:text-white transition-colors"
+                        >
+                          Log in
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        Need an account?{" "}
+                        <button
+                          type="button"
+                          onClick={() => toggleMode("register")}
+                          className="text-cyan-glow hover:text-white transition-colors"
+                        >
+                          Sign up
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </form>
+              </div>
             </div>
           </div>
 
