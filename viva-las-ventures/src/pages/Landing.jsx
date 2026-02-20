@@ -81,7 +81,7 @@ export default function Landing() {
               Log in
             </Link>
             <Link
-              to="/login"
+              to="/login?mode=register"
               className="text-sm bg-primary text-background font-semibold px-5 py-2 rounded-full hover:bg-primary/90 transition-colors"
             >
               Get Started
@@ -137,7 +137,7 @@ export default function Landing() {
           {/* CTA buttons */}
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 animate-fade-in-up animation-delay-800">
             <Link
-              to="/login"
+              to="/login?mode=register"
               className="bg-primary text-background font-semibold px-8 py-3.5 rounded-full text-base hover:bg-primary/90 hover:scale-105 transition-all shadow-lg shadow-primary/20"
             >
               Start Planning — It's Free
@@ -248,7 +248,7 @@ export default function Landing() {
               AI-powered. Event-driven. Completely free.
             </p>
             <Link
-              to="/login"
+              to="/login?mode=register"
               className="inline-block bg-primary text-background font-semibold px-10 py-4 rounded-full text-lg hover:bg-primary/90 hover:scale-105 transition-all shadow-lg shadow-primary/25"
             >
               Get Started Now
