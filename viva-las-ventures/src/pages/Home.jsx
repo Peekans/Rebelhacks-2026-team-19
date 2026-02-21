@@ -5,7 +5,7 @@
  * - Navbar with logo and user name
  * - Greeting with time-of-day awareness
  * - Quick-action cards (Browse Events, Build Itinerary, AI Concierge)
- * - Itinerary summary panel
+ * - Itinerary summary panel ("Your Itinerary")
  * - Upcoming events panel
  */
 
@@ -38,7 +38,7 @@ const ACTION_CARDS = [
         <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 6v.75m0 3v.75m0 3v.75m0 3V18m-9-5.25h5.25M7.5 15h3M3.375 5.25c-.621 0-1.125.504-1.125 1.125v3.026a2.999 2.999 0 0 1 0 5.198v3.026c0 .621.504 1.125 1.125 1.125h17.25c.621 0 1.125-.504 1.125-1.125v-3.026a2.999 2.999 0 0 1 0-5.198V6.375c0-.621-.504-1.125-1.125-1.125H3.375Z" />
       </svg>
     ),
-    link: '#',
+    link: '/builder',
   },
   {
     title: 'Build Itinerary',
@@ -49,7 +49,7 @@ const ACTION_CARDS = [
         <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5m-9-6h.008v.008H12v-.008ZM12 15h.008v.008H12V15Zm0 2.25h.008v.008H12v-.008ZM9.75 15h.008v.008H9.75V15Zm0 2.25h.008v.008H9.75v-.008ZM7.5 15h.008v.008H7.5V15Zm0 2.25h.008v.008H7.5v-.008Zm6.75-4.5h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V15Zm0 2.25h.008v.008h-.008v-.008Zm2.25-4.5h.008v.008H16.5v-.008Zm0 2.25h.008v.008H16.5V15Z" />
       </svg>
     ),
-    link: '#',
+    link: '/builder',
   },
   {
     title: 'AI Concierge',
@@ -90,7 +90,7 @@ const SAMPLE_EVENTS = [
 
 export default function Home() {
   const { currentUser, logout } = useAuth()
-  const { itinerary } = useItinerary()
+  const { itinerary, removeStop } = useItinerary()
   const greeting = getGreeting()
   const displayName = getUserDisplayName(currentUser)
 
@@ -177,12 +177,14 @@ export default function Home() {
                 <h2 className="text-2xl font-heading font-semibold text-white">
                   Your Itinerary
                 </h2>
-                <Link
-                  to="#"
-                  className="text-sm text-cyan-glow hover:text-cyan-glow/80 transition-colors font-body"
-                >
-                  View All
-                </Link>
+                {itinerary.length > 0 && (
+                  <Link
+                    to="/builder"
+                    className="text-sm text-cyan-glow hover:text-cyan-glow/80 transition-colors font-body"
+                  >
+                    Edit
+                  </Link>
+                )}
               </div>
 
               {itinerary.length === 0 ? (
@@ -196,7 +198,7 @@ export default function Home() {
                     No stops added yet
                   </p>
                   <Link
-                    to="#"
+                    to="/builder"
                     className="text-sm bg-primary/10 text-primary font-medium px-5 py-2 rounded-full hover:bg-primary/20 transition-colors"
                   >
                     Start Building
@@ -222,12 +224,25 @@ export default function Home() {
                           </p>
                         )}
                       </div>
+                      {/* Remove button */}
+                      <button
+                        onClick={() => removeStop(stop.id)}
+                        className="w-7 h-7 rounded-lg bg-white/5 text-white/20 flex items-center justify-center hover:bg-red-500/20 hover:text-red-400 transition-colors shrink-0"
+                        title="Remove stop"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
                     </div>
                   ))}
                   {itinerary.length > 4 && (
-                    <p className="text-xs text-white/30 text-center font-body pt-2">
-                      +{itinerary.length - 4} more stops
-                    </p>
+                    <Link
+                      to="/builder"
+                      className="block text-xs text-cyan-glow/60 hover:text-cyan-glow text-center font-body pt-2 transition-colors"
+                    >
+                      +{itinerary.length - 4} more stops — View All
+                    </Link>
                   )}
                 </div>
               )}
@@ -240,7 +255,7 @@ export default function Home() {
                   Upcoming Events
                 </h2>
                 <Link
-                  to="#"
+                  to="/builder"
                   className="text-sm text-cyan-glow hover:text-cyan-glow/80 transition-colors font-body"
                 >
                   See More
@@ -286,12 +301,16 @@ export default function Home() {
                         {event.date}
                       </p>
                     </div>
-                    {/* Add button */}
-                    <button className="w-8 h-8 rounded-lg bg-white/5 text-white/30 flex items-center justify-center hover:bg-primary/20 hover:text-primary transition-colors shrink-0">
+                    {/* Arrow to builder */}
+                    <Link
+                      to="/builder"
+                      className="w-8 h-8 rounded-lg bg-white/5 text-white/30 flex items-center justify-center hover:bg-primary/20 hover:text-primary transition-colors shrink-0"
+                      title="Add to itinerary"
+                    >
                       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
                       </svg>
-                    </button>
+                    </Link>
                   </div>
                 ))}
               </div>
