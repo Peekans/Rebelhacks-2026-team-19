@@ -92,6 +92,21 @@ export async function chatWithClaude(userMessage, conversationHistory = []) {
     throw new Error(`API_ERROR: Anthropic API returned status ${status}. Please try again.`)
   }
 
+  if (!response.ok) {
+    const status = response.status
+    if (status === 401) {
+      throw new Error(
+        'INVALID_API_KEY: Your Anthropic API key is invalid or expired. Please check your .env file and update VITE_ANTHROPIC_API_KEY.'
+      )
+    }
+    if (status === 429) {
+      throw new Error(
+        'RATE_LIMITED: Too many requests. Please wait a moment and try again.'
+      )
+    }
+    throw new Error(`API_ERROR: Anthropic API returned status ${status}. Please try again.`)
+  }
+
   const data = await response.json();
   res.json({ text: data.content[0].text });
 };

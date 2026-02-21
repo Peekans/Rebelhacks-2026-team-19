@@ -72,7 +72,7 @@ const ACTION_CARDS = [
         <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 6v.75m0 3v.75m0 3v.75m0 3V18m-9-5.25h5.25M7.5 15h3M3.375 5.25c-.621 0-1.125.504-1.125 1.125v3.026a2.999 2.999 0 0 1 0 5.198v3.026c0 .621.504 1.125 1.125 1.125h17.25c.621 0 1.125-.504 1.125-1.125v-3.026a2.999 2.999 0 0 1 0-5.198V6.375c0-.621-.504-1.125-1.125-1.125H3.375Z" />
       </svg>
     ),
-    link: '#',
+    link: '/builder',
   },
   {
     title: 'Build Itinerary',
@@ -83,7 +83,7 @@ const ACTION_CARDS = [
         <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5m-9-6h.008v.008H12v-.008ZM12 15h.008v.008H12V15Zm0 2.25h.008v.008H12v-.008ZM9.75 15h.008v.008H9.75V15Zm0 2.25h.008v.008H9.75v-.008ZM7.5 15h.008v.008H7.5V15Zm0 2.25h.008v.008H7.5v-.008Zm6.75-4.5h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V15Zm0 2.25h.008v.008h-.008v-.008Zm2.25-4.5h.008v.008H16.5v-.008Zm0 2.25h.008v.008H16.5V15Z" />
       </svg>
     ),
-    link: '#',
+    link: '/builder',
   },
   {
     title: 'AI Concierge',
@@ -94,7 +94,7 @@ const ACTION_CARDS = [
         <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" />
       </svg>
     ),
-    link: '#',
+    link: '/concierge',
   },
 ]
 
@@ -294,12 +294,14 @@ export default function Home() {
                 <h2 className="text-2xl font-heading font-semibold text-white">
                   Your Itinerary
                 </h2>
-                <Link
-                  to="#"
-                  className="text-sm text-cyan-glow hover:text-cyan-glow/80 transition-colors font-body"
-                >
-                  View All
-                </Link>
+                {itinerary.length > 0 && (
+                  <Link
+                    to="/builder"
+                    className="text-sm text-cyan-glow hover:text-cyan-glow/80 transition-colors font-body"
+                  >
+                    Edit
+                  </Link>
+                )}
               </div>
 
               {itinerary.length === 0 ? (
@@ -313,7 +315,7 @@ export default function Home() {
                     No stops added yet
                   </p>
                   <Link
-                    to="#"
+                    to="/builder"
                     className="text-sm bg-primary/10 text-primary font-medium px-5 py-2 rounded-full hover:bg-primary/20 transition-colors"
                   >
                     Start Building
