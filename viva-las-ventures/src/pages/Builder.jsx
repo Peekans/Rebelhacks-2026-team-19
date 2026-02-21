@@ -5,11 +5,13 @@
  * - Ticketmaster Upcoming Events + images
  * - Add to itinerary (added events disappear from Upcoming list)
  * - Remove from itinerary
+ * - Conflict warning for same start minute
  * - Add Custom Event modal (name + start date/time + icon)
- *
- * Updates:
- * - Custom events do NOT render a thumbnail/picture slot
- * - Itinerary list is separated into "Events" and "Custom Events"
+ * - Custom events have NO picture
+ * - Itinerary separated into "Events" and "Custom Events"
+ * - Filter Upcoming Events by icon type
+ * - Load More moved to bottom and centered
+ * - Human-friendly time formatting
  */
 
 
@@ -22,6 +24,10 @@ import Logo from '../components/Logo'
 // Add these imports at the top
 import { doc, setDoc, getDoc } from 'firebase/firestore'
 import { db } from '../lib/firebase' // Make sure this path matches where your firebase setup file is located
+
+/* ============================= */
+/* Helpers */
+/* ============================= */
 
 function getUserDisplayName(user) {
   if (!user) return 'Guest'
@@ -42,22 +48,63 @@ function toIsoNoMs(d) {
   return new Date(d.getTime() - d.getMilliseconds()).toISOString().replace('.000', '')
 }
 
-function getMinuteKey(dateStr) {
-  if (!dateStr || typeof dateStr !== 'string') return ''
+// Parses "YYYY-MM-DD HH:MM:SS" (local) -> Date (local)
+function parseLocalDateTime(dateStr) {
+  if (!dateStr || typeof dateStr !== 'string') return null
   const parts = dateStr.trim().split(' ')
-  if (parts.length >= 2) {
-    const d = parts[0]
-    const t = parts[1].slice(0, 5)
-    if (d.includes('-') && t.includes(':')) return `${d} ${t}`
-  }
-  return ''
+  if (parts.length < 2) return null
+  const [y, m, d] = parts[0].split('-').map(Number)
+  const [hh, mm, ss] = parts[1].split(':').map(Number)
+  if (!y || !m || !d || hh == null || mm == null) return null
+  return new Date(y, m - 1, d, hh, mm, ss || 0)
 }
 
+// Human date: "Feb 20 • 6:30 PM" (drops year to look cleaner)
+function formatEventDate(dateStr) {
+  const dt = parseLocalDateTime(dateStr)
+  if (!dt) return dateStr || 'Time TBD'
+
+  const str = dt.toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  })
+
+  // "Feb 20, 6:30 PM" -> "Feb 20 • 6:30 PM"
+  return str.replace(',', ' •')
+}
+
+// Used for conflict check (minute precision)
+function getMinuteKey(dateStr) {
+  const dt = parseLocalDateTime(dateStr)
+  if (!dt) return ''
+  const yyyy = dt.getFullYear()
+  const mm = String(dt.getMonth() + 1).padStart(2, '0')
+  const dd = String(dt.getDate()).padStart(2, '0')
+  const hh = String(dt.getHours()).padStart(2, '0')
+  const mi = String(dt.getMinutes()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd} ${hh}:${mi}`
+}
+
+// datetime-local "YYYY-MM-DDTHH:MM" -> "YYYY-MM-DD HH:MM:00"
 function displayFromDateTimeLocal(v) {
   if (!v) return 'Time TBD'
   const [d, t] = v.split('T')
   if (!d || !t) return 'Time TBD'
   return `${d} ${t}:00`
+}
+
+// Icon type for Ticketmaster events (based on category/segment)
+function inferIconTypeFromCategory(category) {
+  const c = (category || '').toLowerCase()
+  if (c.includes('music') || c.includes('concert')) return 'music'
+  if (c.includes('sport')) return 'ticket'
+  if (c.includes('food') || c.includes('dining') || c.includes('restaurant')) return 'food'
+  if (c.includes('theatre') || c.includes('theater') || c.includes('arts') || c.includes('show')) return 'sparkles'
+  if (c.includes('attraction') || c.includes('tour') || c.includes('travel')) return 'map'
+  return 'ticket'
 }
 
 function normalizeTicketmasterEvent(e) {
@@ -68,16 +115,18 @@ function normalizeTicketmasterEvent(e) {
 
   const localDate = e?.dates?.start?.localDate || ''
   const localTime = e?.dates?.start?.localTime || ''
-  const date = [localDate, localTime].filter(Boolean).join(' ') || 'Time TBD'
+  const dateRaw = [localDate, localTime].filter(Boolean).join(' ') || 'Time TBD'
+  const date = dateRaw === 'Time TBD' ? 'Time TBD' : formatEventDate(dateRaw)
 
   return {
     id: e.id,
     name: e.name || 'Untitled Event',
     venue,
+    dateRaw,
     date,
     imageUrl: pickBestImage(e.images),
     category: e?.classifications?.[0]?.segment?.name || 'Event',
-    iconKey: null,
+    iconKey: null, // ticketmaster uses inferred icon type
   }
 }
 
@@ -137,8 +186,10 @@ const SAMPLE_EVENTS = [
     iconKey: null,
   },
 ]
+/* ============================= */
+/* Icons */
+/* ============================= */
 
-// ---------- Icon system ----------
 function IconTicket(props) {
   return (
     <svg {...props} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}>
@@ -193,36 +244,44 @@ function getIconByKey(iconKey) {
   return ICON_CHOICES.find((c) => c.key === iconKey)?.Icon || null
 }
 
-function getCategoryIcon(category, iconKey) {
-  const Override = iconKey ? getIconByKey(iconKey) : null
+function getCategoryIcon(category, iconKeyOrType) {
+  const Override = iconKeyOrType ? getIconByKey(iconKeyOrType) : null
   if (Override) return <Override className="w-5 h-5" />
 
-  const c = (category || '').toLowerCase()
-  if (c.includes('music') || c.includes('concert')) return <IconMusic className="w-5 h-5" />
-  if (c.includes('sport')) {
-    return (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 18.75h-9m9 0a3 3 0 0 1 3 3h-15a3 3 0 0 1 3-3m9 0v-3.375c0-.621-.503-1.125-1.125-1.125h-.871M7.5 18.75v-3.375c0-.621.504-1.125 1.125-1.125h.872m5.007 0H9.497m5.007 0a7.454 7.454 0 0 1-.982-3.172M9.497 14.25a7.454 7.454 0 0 0 .982-3.172M12 3.75a3.75 3.75 0 0 0-3.75 3.75 7.5 7.5 0 0 0 3.75 6.497 7.5 7.5 0 0 0 3.75-6.497A3.75 3.75 0 0 0 12 3.75Z" />
-      </svg>
-    )
-  }
-  return <IconTicket className="w-5 h-5" />
+  const inferred = inferIconTypeFromCategory(category)
+  const InferredIcon = getIconByKey(inferred) || IconTicket
+  return <InferredIcon className="w-5 h-5" />
 }
+
+/* ============================= */
+/* Component */
+/* ============================= */
 
 export default function Builder() {
   const { currentUser, logout } = useAuth()
   const displayName = getUserDisplayName(currentUser)
 
   const { itinerary, addStop, removeStop, clearItinerary } = useItinerary()
+  const { itinerary, addStop, removeStop } = useItinerary()
 
-  const [upcomingEvents, setUpcomingEvents] = useState(SAMPLE_EVENTS)
+  const [upcomingEvents, setUpcomingEvents] = useState([])
   const [page, setPage] = useState(0)
   const [loadingEvents, setLoadingEvents] = useState(false)
 
-  // Custom event modal state
+  // Filter UI
+  const [showFilter, setShowFilter] = useState(false)
+  const [activeIconFilters, setActiveIconFilters] = useState({
+    ticket: true,
+    music: true,
+    sparkles: true,
+    food: true,
+    map: true,
+  })
+
+  // Custom Event modal
   const [showCustomModal, setShowCustomModal] = useState(false)
   const [customName, setCustomName] = useState('')
-  const [customDateTime, setCustomDateTime] = useState('') // datetime-local
+  const [customDateTime, setCustomDateTime] = useState('')
   const [customIconKey, setCustomIconKey] = useState('ticket')
 
   const [toastMessage, setToastMessage] = useState('')
@@ -233,6 +292,8 @@ export default function Builder() {
     (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_TICKETMASTER_KEY) ||
     (typeof process !== 'undefined' && process.env && process.env.REACT_APP_TICKETMASTER_KEY) ||
     ''
+  // Vite only (your case)
+  const apiKey = import.meta.env.VITE_TICKETMASTER_KEY || ''
 
   useEffect(() => {
     let cancelled = false
@@ -242,7 +303,6 @@ export default function Builder() {
       setLoadingEvents(true)
 
       const startDateTime = toIsoNoMs(new Date())
-
       const url =
         `https://app.ticketmaster.com/discovery/v2/events.json` +
         `?apikey=${encodeURIComponent(apiKey)}` +
@@ -257,16 +317,11 @@ export default function Builder() {
         const res = await fetch(url)
         if (!res.ok) throw new Error(`Ticketmaster error ${res.status}`)
         const data = await res.json()
-
         const raw = data?._embedded?.events ?? []
         const normalized = raw.map(normalizeTicketmasterEvent)
 
         if (!cancelled) {
-          if (normalized.length === 0 && page === 0) {
-            setUpcomingEvents(SAMPLE_EVENTS)
-          } else {
-            setUpcomingEvents((prev) => (page === 0 ? normalized : [...prev, ...normalized]))
-          }
+          setUpcomingEvents((prev) => (page === 0 ? normalized : [...prev, ...normalized]))
         }
       } catch (e) {
         console.error(e)
@@ -336,6 +391,7 @@ export default function Builder() {
     }
   }
 
+  // set of itinerary Ticketmaster IDs (tmId)
   const itineraryTmIds = useMemo(() => {
     const s = new Set()
     for (const stop of itinerary) {
@@ -345,11 +401,27 @@ export default function Builder() {
     return s
   }, [itinerary])
 
-  const visibleUpcomingEvents = useMemo(() => {
-    return upcomingEvents.filter((e) => !itineraryTmIds.has(String(e.id)))
-  }, [upcomingEvents, itineraryTmIds])
+  // conflict keys
+  const itineraryMinuteKeys = useMemo(() => {
+    const set = new Set()
+    for (const stop of itinerary) {
+      const raw = stop.dateRaw || stop.date
+      const k = getMinuteKey(raw)
+      if (k) set.add(k)
+    }
+    return set
+  }, [itinerary])
 
-  // Split itinerary into two groups
+  // filter + hide already added
+  const visibleUpcomingEvents = useMemo(() => {
+    const base = upcomingEvents.filter((e) => !itineraryTmIds.has(String(e.id)))
+    return base.filter((e) => {
+      const iconType = e.iconKey || inferIconTypeFromCategory(e.category)
+      return !!activeIconFilters[iconType]
+    })
+  }, [upcomingEvents, itineraryTmIds, activeIconFilters])
+
+  // split itinerary into normal + custom
   const { nonCustomStops, customStops } = useMemo(() => {
     const nonCustom = []
     const custom = []
@@ -359,16 +431,6 @@ export default function Builder() {
       else nonCustom.push(s)
     }
     return { nonCustomStops: nonCustom, customStops: custom }
-  }, [itinerary])
-
-  // (optional) same-minute conflicts for upcoming list
-  const itineraryMinuteKeys = useMemo(() => {
-    const set = new Set()
-    for (const stop of itinerary) {
-      const k = getMinuteKey(stop.date)
-      if (k) set.add(k)
-    }
-    return set
   }, [itinerary])
 
   function resetCustomModal() {
@@ -383,30 +445,30 @@ export default function Builder() {
     const trimmed = customName.trim()
     if (!trimmed) return
 
-    const dateDisplay = displayFromDateTimeLocal(customDateTime)
-    const minuteKey = getMinuteKey(dateDisplay)
+    const dateRaw = displayFromDateTimeLocal(customDateTime)
+    const date = dateRaw === 'Time TBD' ? 'Time TBD' : formatEventDate(dateRaw)
+    const minuteKey = getMinuteKey(dateRaw)
 
     const sourceId =
-      (typeof crypto !== 'undefined' && crypto.randomUUID)
+      typeof crypto !== 'undefined' && crypto.randomUUID
         ? `custom-${crypto.randomUUID()}`
         : `custom-${Date.now()}`
 
     addStop?.({
-      tmId: sourceId, // used for filtering logic (not shown)
+      tmId: sourceId,
       name: trimmed,
       venue: 'Custom event',
-      date: dateDisplay,
+      dateRaw,
+      date,
       category: 'Custom',
       iconKey: customIconKey,
       minuteKey,
-      // NOTE: no imageUrl field at all for custom
     })
 
     setShowCustomModal(false)
     resetCustomModal()
   }
 
-  // Shared renderer for itinerary rows
   function ItineraryRow({ stop, indexLabel }) {
     const isCustom = String(stop.category || '').toLowerCase() === 'custom'
     const hasImage = !!stop.imageUrl && !isCustom
@@ -417,37 +479,20 @@ export default function Builder() {
           {indexLabel}
         </div>
 
-        {/* Icon badge */}
         <div className="w-10 h-10 rounded-lg bg-cyan-glow/10 text-cyan-glow flex items-center justify-center shrink-0">
           {getCategoryIcon(stop.category, stop.iconKey)}
         </div>
 
-        {/* Thumbnail ONLY for non-custom events that have an image */}
         {hasImage && (
           <div className="w-12 h-12 rounded-xl overflow-hidden bg-white/5 border border-white/10 shrink-0">
-            <img
-              src={stop.imageUrl}
-              alt={stop.name}
-              className="w-full h-full object-cover"
-              loading="lazy"
-            />
+            <img src={stop.imageUrl} alt={stop.name} className="w-full h-full object-cover" loading="lazy" />
           </div>
         )}
 
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-body text-white truncate">
-            {stop.name}
-          </p>
-          {stop.venue && (
-            <p className="text-xs text-white/40 font-body truncate">
-              {stop.venue}
-            </p>
-          )}
-          {stop.date && (
-            <p className="text-xs text-primary/80 font-body truncate">
-              {stop.date}
-            </p>
-          )}
+          <p className="text-sm font-body text-white truncate">{stop.name}</p>
+          {stop.venue && <p className="text-xs text-white/40 font-body truncate">{stop.venue}</p>}
+          {stop.date && <p className="text-xs text-primary/80 font-body truncate">{stop.date}</p>}
         </div>
 
         <button
@@ -471,56 +516,44 @@ export default function Builder() {
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           <Link to="/home" className="flex items-center gap-3">
             <Logo size={36} />
-            <span className="font-heading text-lg text-white tracking-wide">
-              Viva Las Ventures
-            </span>
+            <span className="font-heading text-lg text-white tracking-wide">Viva Las Ventures</span>
           </Link>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-full bg-primary/20 border border-primary/40 flex items-center justify-center text-primary text-sm font-semibold">
                 {displayName.charAt(0).toUpperCase()}
               </div>
-              <span className="text-sm text-accent/80 font-body hidden sm:block">
-                {displayName}
-              </span>
+              <span className="text-sm text-accent/80 font-body hidden sm:block">{displayName}</span>
             </div>
-            <button
-              onClick={logout}
-              className="text-sm text-white/40 hover:text-white transition-colors font-body"
-            >
+            <button onClick={logout} className="text-sm text-white/40 hover:text-white transition-colors font-body">
               Log out
             </button>
           </div>
         </div>
       </nav>
 
-      {/* ===== MAIN ===== */}
+      {/* ===== MAIN CONTENT ===== */}
       <main className="pt-24 pb-16 px-6">
         <div className="max-w-7xl mx-auto">
           <div className="flex items-center justify-between mb-8">
             <div>
-              <h1 className="text-3xl sm:text-4xl font-heading font-bold text-white">
-                Build Itinerary
-              </h1>
-              <p className="text-white/50 font-body mt-2">
-                Add events from the right panel to your itinerary on the left.
-              </p>
+              <h1 className="text-3xl sm:text-4xl font-heading font-bold text-white">Build Itinerary</h1>
+              <p className="text-white/50 font-body mt-2">Add events from the right panel to your itinerary on the left.</p>
             </div>
-            <Link
-              to="/home"
-              className="text-sm text-cyan-glow hover:text-cyan-glow/80 transition-colors font-body"
-            >
+            <Link to="/home" className="text-sm text-cyan-glow hover:text-cyan-glow/80 transition-colors font-body">
               Back to Home
             </Link>
           </div>
 
           <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Your Itinerary */}
+            {/* ===== ITINERARY ===== */}
             <div className="bg-surface/60 border border-white/5 rounded-2xl p-8">
             <div className="flex items-center justify-between mb-6">
                 <h2 className="text-2xl font-heading font-semibold text-white">
                   Your Itinerary
                 </h2>
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-heading font-semibold text-white">Your Itinerary</h2>
 
                 <div className="flex gap-3">
                   <button
@@ -544,66 +577,41 @@ export default function Builder() {
 
               {itinerary.length === 0 ? (
                 <div className="text-center py-12">
-                  <p className="text-white/40 font-body text-sm">
-                    No stops added yet
-                  </p>
+                  <p className="text-white/40 font-body text-sm">No stops added yet</p>
                 </div>
               ) : (
                 <div className="max-h-[520px] overflow-y-auto pr-1">
-                  {/* Events */}
                   <div className="mb-4">
                     <div className="flex items-center justify-between px-1 mb-3">
-                      <p className="text-xs tracking-wide uppercase text-white/40 font-body">
-                        Events
-                      </p>
-                      <p className="text-xs text-white/30 font-body">
-                        {nonCustomStops.length}
-                      </p>
+                      <p className="text-xs tracking-wide uppercase text-white/40 font-body">Events</p>
+                      <p className="text-xs text-white/30 font-body">{nonCustomStops.length}</p>
                     </div>
 
                     {nonCustomStops.length === 0 ? (
-                      <p className="text-xs text-white/30 font-body px-1">
-                        No events yet.
-                      </p>
+                      <p className="text-xs text-white/30 font-body px-1">No events yet.</p>
                     ) : (
                       <div className="space-y-3">
                         {nonCustomStops.map((stop, i) => (
-                          <ItineraryRow
-                            key={stop.id}
-                            stop={stop}
-                            indexLabel={i + 1}
-                          />
+                          <ItineraryRow key={stop.id} stop={stop} indexLabel={i + 1} />
                         ))}
                       </div>
                     )}
                   </div>
 
-                  {/* Divider */}
                   <div className="my-6 border-t border-white/10" />
 
-                  {/* Custom Events */}
                   <div>
                     <div className="flex items-center justify-between px-1 mb-3">
-                      <p className="text-xs tracking-wide uppercase text-white/40 font-body">
-                        Custom Events
-                      </p>
-                      <p className="text-xs text-white/30 font-body">
-                        {customStops.length}
-                      </p>
+                      <p className="text-xs tracking-wide uppercase text-white/40 font-body">Custom Events</p>
+                      <p className="text-xs text-white/30 font-body">{customStops.length}</p>
                     </div>
 
                     {customStops.length === 0 ? (
-                      <p className="text-xs text-white/30 font-body px-1">
-                        No custom events yet.
-                      </p>
+                      <p className="text-xs text-white/30 font-body px-1">No custom events yet.</p>
                     ) : (
                       <div className="space-y-3">
                         {customStops.map((stop, i) => (
-                          <ItineraryRow
-                            key={stop.id}
-                            stop={stop}
-                            indexLabel={i + 1}
-                          />
+                          <ItineraryRow key={stop.id} stop={stop} indexLabel={i + 1} />
                         ))}
                       </div>
                     )}
@@ -612,73 +620,121 @@ export default function Builder() {
               )}
             </div>
 
-            {/* Upcoming Events */}
+            {/* ===== UPCOMING EVENTS ===== */}
             <div className="bg-surface/60 border border-white/5 rounded-2xl p-8">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-2xl font-heading font-semibold text-white">
-                  Upcoming Events
-                </h2>
+              <div className="flex items-center justify-between mb-6 relative">
+                <h2 className="text-2xl font-heading font-semibold text-white">Upcoming Events</h2>
 
-                <button
-                  type="button"
-                  onClick={() => setPage((p) => p + 1)}
-                  className="text-sm text-cyan-glow hover:text-cyan-glow/80 transition-colors font-body"
-                >
-                  Load More
-                </button>
+                {/* Filter button replaces Load More in header */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setShowFilter((v) => !v)}
+                    className="text-sm text-cyan-glow hover:text-cyan-glow/80 transition-colors font-body"
+                  >
+                    Filter
+                  </button>
+
+                  {showFilter && (
+                    <div className="absolute right-0 mt-3 w-60 rounded-2xl bg-surface/95 border border-white/10 shadow-xl p-4 z-50">
+                      <p className="text-xs uppercase tracking-wide text-white/40 font-body mb-3">Icon Types</p>
+
+                      {ICON_CHOICES.map((opt) => (
+                        <label key={opt.key} className="flex items-center gap-3 py-2 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={!!activeIconFilters[opt.key]}
+                            onChange={(e) =>
+                              setActiveIconFilters((prev) => ({
+                                ...prev,
+                                [opt.key]: e.target.checked,
+                              }))
+                            }
+                          />
+                          <span className="text-sm text-white/70 font-body">{opt.label}</span>
+                        </label>
+                      ))}
+
+                      <div className="mt-3 flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setActiveIconFilters({
+                              ticket: true,
+                              music: true,
+                              sparkles: true,
+                              food: true,
+                              map: true,
+                            })
+                          }
+                          className="flex-1 text-xs bg-white/5 hover:bg-white/10 border border-white/10 text-white/60 hover:text-white rounded-xl py-2 font-body transition-colors"
+                        >
+                          Select All
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setActiveIconFilters({
+                              ticket: false,
+                              music: false,
+                              sparkles: false,
+                              food: false,
+                              map: false,
+                            })
+                          }
+                          className="flex-1 text-xs bg-white/5 hover:bg-white/10 border border-white/10 text-white/60 hover:text-white rounded-xl py-2 font-body transition-colors"
+                        >
+                          Clear
+                        </button>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setShowFilter(false)}
+                        className="mt-3 w-full text-xs text-white/40 hover:text-white/70 font-body transition-colors"
+                      >
+                        Close
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="space-y-3 max-h-[520px] overflow-y-auto pr-1">
                 {visibleUpcomingEvents.map((event) => {
-                  const minuteKey = getMinuteKey(event.date)
+                  const raw = event.dateRaw || event.date
+                  const minuteKey = getMinuteKey(raw)
                   const hasConflict = minuteKey && itineraryMinuteKeys.has(minuteKey)
 
+                  const iconType = event.iconKey || inferIconTypeFromCategory(event.category)
+
                   return (
-                    <div
-                      key={event.id}
-                      className="group flex items-center gap-4 bg-white/5 rounded-xl p-4 hover:bg-white/8 transition-colors"
-                    >
+                    <div key={event.id} className="group flex items-center gap-4 bg-white/5 rounded-xl p-4 hover:bg-white/8 transition-colors">
                       <div className="w-10 h-10 rounded-lg bg-cyan-glow/10 text-cyan-glow flex items-center justify-center shrink-0">
-                        {getCategoryIcon(event.category, event.iconKey)}
+                        {getCategoryIcon(event.category, iconType)}
                       </div>
 
                       <div className="w-12 h-12 rounded-xl overflow-hidden bg-white/5 border border-white/10 shrink-0">
                         {event.imageUrl ? (
-                          <img
-                            src={event.imageUrl}
-                            alt={event.name}
-                            className="w-full h-full object-cover"
-                            loading="lazy"
-                          />
+                          <img src={event.imageUrl} alt={event.name} className="w-full h-full object-cover" loading="lazy" />
                         ) : null}
                       </div>
 
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-body text-white font-medium truncate">
-                          {event.name}
-                        </p>
-                        <p className="text-xs text-white/40 font-body truncate">
-                          {event.venue}
-                        </p>
+                        <p className="text-sm font-body text-white font-medium truncate">{event.name}</p>
+                        <p className="text-xs text-white/40 font-body truncate">{event.venue}</p>
                       </div>
 
                       <div className="text-right shrink-0">
-                        <p className="text-xs text-primary font-body font-medium whitespace-nowrap">
-                          {event.date}
-                        </p>
+                        <p className="text-xs text-primary font-body font-medium whitespace-nowrap">{event.date}</p>
                         {hasConflict && (
-                          <p className="text-[11px] text-red-400 font-body mt-1 whitespace-nowrap">
-                            Time conflict
-                          </p>
+                          <p className="text-[11px] text-red-400 font-body mt-1 whitespace-nowrap">Time conflict</p>
                         )}
                       </div>
 
                       <button
                         type="button"
-                        onClick={() => {
-                          const minuteKey2 = getMinuteKey(event.date)
-                          addStop?.({ ...event, tmId: event.id, minuteKey: minuteKey2 })
-                        }}
+                        onClick={() => addStop?.({ ...event, tmId: event.id, minuteKey })}
                         className="w-9 h-9 rounded-lg bg-white/5 text-white/40 hover:bg-primary/20 hover:text-primary transition-colors shrink-0 flex items-center justify-center"
                         title="Add to itinerary"
                       >
@@ -690,17 +746,22 @@ export default function Builder() {
                   )
                 })}
 
-                {loadingEvents && (
-                  <p className="text-xs text-white/30 font-body pt-2 text-center">
-                    Loading more…
-                  </p>
-                )}
+                {loadingEvents && <p className="text-xs text-white/30 font-body pt-2 text-center">Loading more…</p>}
 
                 {!loadingEvents && visibleUpcomingEvents.length === 0 && (
-                  <p className="text-xs text-white/30 font-body pt-2 text-center">
-                    No more events to show.
-                  </p>
+                  <p className="text-xs text-white/30 font-body pt-2 text-center">No events match your filters.</p>
                 )}
+              </div>
+
+              {/* Load More moved to bottom + centered */}
+              <div className="pt-5 flex justify-center">
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => p + 1)}
+                  className="text-sm bg-white/5 hover:bg-white/10 border border-white/10 text-white/70 hover:text-white px-6 py-2 rounded-full transition-colors font-body"
+                >
+                  Load More
+                </button>
               </div>
 
               {!apiKey && (
@@ -713,7 +774,7 @@ export default function Builder() {
         </div>
       </main>
 
-      {/* ===== Custom Event Modal ===== */}
+      {/* ===== CUSTOM EVENT MODAL ===== */}
       {showCustomModal && (
         <div
           className="fixed inset-0 z-[999] flex items-center justify-center px-4"
@@ -731,12 +792,8 @@ export default function Builder() {
           <div className="relative w-full max-w-lg bg-surface/90 border border-white/10 rounded-2xl p-6 shadow-xl">
             <div className="flex items-start justify-between gap-4 mb-4">
               <div>
-                <h3 className="text-xl font-heading font-semibold text-white">
-                  Add custom event
-                </h3>
-                <p className="text-sm text-white/50 font-body mt-1">
-                  Create something that’s not on Ticketmaster.
-                </p>
+                <h3 className="text-xl font-heading font-semibold text-white">Add custom event</h3>
+                <p className="text-sm text-white/50 font-body mt-1">Create something that’s not on Ticketmaster.</p>
               </div>
 
               <button
@@ -756,9 +813,7 @@ export default function Builder() {
 
             <form onSubmit={submitCustomEvent} className="space-y-5">
               <div>
-                <label className="block text-sm text-white/70 font-body mb-2">
-                  Event name
-                </label>
+                <label className="block text-sm text-white/70 font-body mb-2">Event name</label>
                 <input
                   value={customName}
                   onChange={(e) => setCustomName(e.target.value)}
@@ -769,9 +824,7 @@ export default function Builder() {
               </div>
 
               <div>
-                <label className="block text-sm text-white/70 font-body mb-2">
-                  Start date & time
-                </label>
+                <label className="block text-sm text-white/70 font-body mb-2">Start date & time</label>
                 <input
                   type="datetime-local"
                   value={customDateTime}
@@ -782,9 +835,7 @@ export default function Builder() {
               </div>
 
               <div>
-                <label className="block text-sm text-white/70 font-body mb-2">
-                  Choose an icon
-                </label>
+                <label className="block text-sm text-white/70 font-body mb-2">Choose an icon</label>
 
                 <div className="grid grid-cols-5 gap-3">
                   {ICON_CHOICES.map(({ key, label, Icon }) => {

@@ -31,7 +31,7 @@ const ACTION_CARDS = [
   {
     title: 'Build Itinerary',
     description:
-      'Drag and drop events, restaurants, and attractions into your perfect day plan.',
+      'Add events, restaurants, and attractions into your perfect day plan.',
     icon: (
       <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
@@ -97,7 +97,7 @@ export default function Home() {
               <span className="text-primary">{displayName}</span>
             </h1>
             <p className="text-lg text-white/50 font-body">
-              What would you like to do today?
+              How would you like to start your adventure in Las Vegas today?
             </p>
           </section>
 
