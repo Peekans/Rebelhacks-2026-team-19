@@ -38,9 +38,9 @@ const FEATURES = [
         <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 3v3m0 12v3M15.75 3v3m0 12v3" />
       </svg>
     ),
-    title: 'Drag & Drop Itinerary',
+    title: 'Build Itinerary',
     description:
-      'Build your perfect day by dragging events, restaurants, and attractions into a timeline. Reorder on the fly — your trip, your rules.',
+      'Build your perfect day by adding events, restaurants, and attractions into a timeline. Reorder on the fly — your trip, your rules.',
   },
   {
     icon: (
@@ -57,7 +57,7 @@ const FEATURES = [
 const STEPS = [
   { number: '01', title: 'Sign Up', description: 'Create a free account in seconds with email or Google.' },
   { number: '02', title: 'Browse Events', description: 'Explore live shows, dining, and nightlife happening now.' },
-  { number: '03', title: 'Build Your Itinerary', description: 'Drag and drop your picks into a custom day plan.' },
+  { number: '03', title: 'Build Your Itinerary', description: 'Add your picks into a custom day plan.' },
   { number: '04', title: 'Go Have Fun', description: 'Hit the Strip with your perfect itinerary in your pocket.' },
 ]
 
@@ -131,7 +131,7 @@ export default function Landing() {
           {/* Tagline */}
           <p className="text-lg sm:text-xl text-accent/90 font-body max-w-2xl mx-auto mb-10 animate-fade-in-up animation-delay-600">
             Your AI-powered Las Vegas itinerary planner. Discover live events,
-            build drag-and-drop day plans, and experience Vegas like never before.
+            build itineraries, and experience Vegas like never before.
           </p>
 
           {/* CTA buttons */}
