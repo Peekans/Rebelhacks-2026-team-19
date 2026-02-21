@@ -14,6 +14,8 @@
  * - Human-friendly time formatting
  * - Auto-scroll on Load More
  * - Shared Calendar Widget integration
+ * - Firebase save/load itinerary
+ * - Toast notifications
  */
 
 import { Link } from 'react-router-dom'
@@ -22,9 +24,33 @@ import { useAuth } from '../context/AuthContext'
 import { useItinerary } from '../context/ItineraryContext'
 import Logo from '../components/logo'
 import CalendarWidget from '../components/CalendarWidget'
+import { doc, setDoc, getDoc } from 'firebase/firestore'
+import { db } from '../lib/firebase'
 
 /* ============================= */
-/* Helpers */
+/* Firebase helpers              */
+/* ============================= */
+
+const saveItineraryToFirestore = async (currentUser, itinerary) => {
+  if (!currentUser) {
+    alert('You must be logged in to save your itinerary.')
+    return
+  }
+
+  try {
+    const itineraryRef = doc(db, 'itineraries', currentUser.uid)
+    await setDoc(itineraryRef, {
+      stops: itinerary,
+      updatedAt: new Date().toISOString()
+    }, { merge: true })
+  } catch (error) {
+    console.error('Error saving to Firestore:', error)
+    throw error
+  }
+}
+
+/* ============================= */
+/* Helpers                       */
 /* ============================= */
 
 function getUserDisplayName(user) {
@@ -128,12 +154,12 @@ function normalizeTicketmasterEvent(e) {
     date,
     imageUrl: pickBestImage(e.images),
     category: e?.classifications?.[0]?.segment?.name || 'Event',
-    iconKey: null, 
+    iconKey: null,
   }
 }
 
 /* ============================= */
-/* Icons */
+/* Icons                         */
 /* ============================= */
 
 function IconTicket(props) {
@@ -200,13 +226,13 @@ function getCategoryIcon(category, iconKeyOrType) {
 }
 
 /* ============================= */
-/* Component */
+/* Component                     */
 /* ============================= */
 
 export default function Builder() {
   const { currentUser, logout } = useAuth()
   const displayName = getUserDisplayName(currentUser)
-  const { itinerary, addStop, removeStop } = useItinerary()
+  const { itinerary, addStop, removeStop, clearItinerary } = useItinerary()
 
   const [upcomingEvents, setUpcomingEvents] = useState([])
   const [page, setPage] = useState(0)
@@ -232,7 +258,14 @@ export default function Builder() {
   const [customDateTime, setCustomDateTime] = useState('')
   const [customIconKey, setCustomIconKey] = useState('ticket')
 
+  // Toast
+  const [toastMessage, setToastMessage] = useState('')
+
   const apiKey = import.meta.env.VITE_TICKETMASTER_KEY || ''
+
+  /* ============================= */
+  /* Fetch Ticketmaster events     */
+  /* ============================= */
 
   useEffect(() => {
     let cancelled = false
@@ -274,6 +307,67 @@ export default function Builder() {
       cancelled = true
     }
   }, [apiKey, page])
+
+  /* ============================= */
+  /* Firebase load on mount        */
+  /* ============================= */
+
+  useEffect(() => {
+    if (currentUser) {
+      loadItineraryFromFirestore()
+    } else {
+      if (clearItinerary) clearItinerary()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser])
+
+  const loadItineraryFromFirestore = async () => {
+    if (!currentUser) return
+
+    try {
+      if (clearItinerary) clearItinerary()
+      const itineraryRef = doc(db, 'itineraries', currentUser.uid)
+      const docSnap = await getDoc(itineraryRef)
+
+      if (docSnap.exists()) {
+        const savedData = docSnap.data()
+        if (savedData.stops && savedData.stops.length > 0) {
+          savedData.stops.forEach((stop) => {
+            addStop?.(stop)
+          })
+        }
+      } else {
+        console.log('No saved itinerary found for this user.')
+      }
+    } catch (error) {
+      console.error('Error loading itinerary from Firestore:', error)
+    }
+  }
+
+  /* ============================= */
+  /* Toast helper                  */
+  /* ============================= */
+
+  const showToast = (message) => {
+    setToastMessage(message)
+    setTimeout(() => {
+      setToastMessage('')
+    }, 3000)
+  }
+
+  const handleSaveItinerary = async () => {
+    try {
+      await saveItineraryToFirestore(currentUser, itinerary)
+      showToast('Itinerary saved successfully!')
+    } catch (error) {
+      console.error(error)
+      showToast('Error saving itinerary.')
+    }
+  }
+
+  /* ============================= */
+  /* Derived data                  */
+  /* ============================= */
 
   const itineraryTmIds = useMemo(() => {
     const s = new Set()
@@ -322,7 +416,7 @@ export default function Builder() {
   }, [itinerary])
 
   /* ============================= */
-  /* Actions */
+  /* Actions                       */
   /* ============================= */
 
   function resetCustomModal() {
@@ -384,7 +478,7 @@ export default function Builder() {
         <div className="flex-1 min-w-0">
           <p className="text-sm font-body text-white truncate">{stop.name}</p>
           {stop.venue && <p className="text-xs text-white/40 font-body truncate">{stop.venue}</p>}
-          {stop.date && <p className="text-xs text-primary/80 font-body truncate">{stop.date}</p>}
+          {(stop.date) && <p className="text-xs text-primary/80 font-body truncate">{stop.date}</p>}
         </div>
 
         <button
@@ -443,13 +537,24 @@ export default function Builder() {
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-2xl font-heading font-semibold text-white">Your Itinerary</h2>
 
-                <button
-                  type="button"
-                  onClick={() => setShowCustomModal(true)}
-                  className="text-sm bg-white/5 hover:bg-white/10 border border-white/10 text-white/70 hover:text-white px-4 py-2 rounded-full transition-colors font-body"
-                >
-                  + Custom
-                </button>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowCustomModal(true)}
+                    className="text-sm bg-white/5 hover:bg-white/10 border border-white/10 text-white/70 hover:text-white px-4 py-2 rounded-full transition-colors font-body"
+                  >
+                    + Custom
+                  </button>
+
+                  {/* SAVE BUTTON */}
+                  <button
+                    type="button"
+                    onClick={handleSaveItinerary}
+                    className="text-sm bg-cyan-glow/15 hover:bg-cyan-glow/25 border border-cyan-glow/30 text-cyan-glow px-4 py-2 rounded-full transition-colors font-body"
+                  >
+                    Save to Calendar
+                  </button>
+                </div>
               </div>
 
               {itinerary.length === 0 ? (
@@ -576,8 +681,8 @@ export default function Builder() {
                 </div>
               </div>
 
-              <div 
-                ref={eventsListRef} 
+              <div
+                ref={eventsListRef}
                 className="space-y-3 max-h-[520px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent"
               >
                 {visibleUpcomingEvents.map((event) => {
@@ -669,7 +774,7 @@ export default function Builder() {
             <div className="flex items-start justify-between gap-4 mb-4">
               <div>
                 <h3 className="text-xl font-heading font-semibold text-white">Add custom event</h3>
-                <p className="text-sm text-white/50 font-body mt-1">Create something that’s not on Ticketmaster.</p>
+                <p className="text-sm text-white/50 font-body mt-1">Create something that's not on Ticketmaster.</p>
               </div>
 
               <button
@@ -758,6 +863,20 @@ export default function Builder() {
               </div>
             </form>
           </div>
+        </div>
+      )}
+
+      {/* ===== TOAST NOTIFICATION ===== */}
+      {toastMessage && (
+        <div className="fixed bottom-8 left-1/2 transform -translate-x-1/2 bg-surface/90 backdrop-blur-md border border-cyan-glow/30 text-white px-6 py-3 rounded-full shadow-2xl z-[100] flex items-center gap-3 animate-fade-in">
+          <div className="w-6 h-6 rounded-full bg-cyan-glow/20 flex items-center justify-center text-cyan-glow shrink-0">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+          <span className="font-body text-sm font-medium tracking-wide">
+            {toastMessage}
+          </span>
         </div>
       )}
     </div>
