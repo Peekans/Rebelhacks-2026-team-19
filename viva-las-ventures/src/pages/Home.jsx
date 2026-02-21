@@ -4,16 +4,18 @@
  * Main dashboard after login. Displays:
  * - Navbar with logo and user name
  * - Greeting with time-of-day awareness
- * - Quick-action cards (Browse Events, Build Itinerary, AI Concierge)
+ * - Quick-action cards (Build Itinerary, AI Concierge)
  * - Itinerary summary panel (scrollable list + shows time/date)
  * - Upcoming events panel (fetches + images + add/remove + load more)
  */
+
 
 import { Link } from 'react-router-dom'
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useItinerary } from '../context/ItineraryContext'
 import Logo from '../components/logo'
+
 
 function getGreeting() {
   const hour = new Date().getHours()
@@ -22,6 +24,7 @@ function getGreeting() {
   return 'Good evening'
 }
 
+
 function getUserDisplayName(user) {
   if (!user) return 'Guest'
   if (user.displayName) return user.displayName
@@ -29,14 +32,15 @@ function getUserDisplayName(user) {
   return 'Guest'
 }
 
+
 function pickBestImage(images) {
   if (!Array.isArray(images) || images.length === 0) return ''
-  // Prefer a "not tiny" image if possible
   const preferred = images
     .filter((img) => (img.width ?? 0) >= 200)
     .sort((a, b) => (a.width ?? 9999) - (b.width ?? 9999))
   return (preferred[0] || images[0])?.url || ''
 }
+
 
 function normalizeTicketmasterEvent(e) {
   const venue =
@@ -44,9 +48,11 @@ function normalizeTicketmasterEvent(e) {
     e?._embedded?.venues?.[0]?.address?.line1 ||
     'Unknown venue'
 
+
   const localDate = e?.dates?.start?.localDate || ''
   const localTime = e?.dates?.start?.localTime || ''
   const date = [localDate, localTime].filter(Boolean).join(' ') || 'Time TBD'
+
 
   return {
     id: e.id,
@@ -58,23 +64,14 @@ function normalizeTicketmasterEvent(e) {
   }
 }
 
-// Ticketmaster-friendly ISO without milliseconds: 2026-02-20T19:02:11Z
+
 function toIsoNoMs(d) {
   return new Date(d.getTime() - d.getMilliseconds()).toISOString().replace('.000', '')
 }
 
+
+// ✅ "Browse Events" removed; only 2 cards remain
 const ACTION_CARDS = [
-  {
-    title: 'Browse Events',
-    description:
-      'Explore live shows, concerts, sports, and nightlife happening across Las Vegas.',
-    icon: (
-      <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 6v.75m0 3v.75m0 3v.75m0 3V18m-9-5.25h5.25M7.5 15h3M3.375 5.25c-.621 0-1.125.504-1.125 1.125v3.026a2.999 2.999 0 0 1 0 5.198v3.026c0 .621.504 1.125 1.125 1.125h17.25c.621 0 1.125-.504 1.125-1.125v-3.026a2.999 2.999 0 0 1 0-5.198V6.375c0-.621-.504-1.125-1.125-1.125H3.375Z" />
-      </svg>
-    ),
-    link: '#',
-  },
   {
     title: 'Build Itinerary',
     description:
@@ -98,6 +95,7 @@ const ACTION_CARDS = [
     link: '#',
   },
 ]
+
 
 const SAMPLE_EVENTS = [
   {
@@ -126,33 +124,41 @@ const SAMPLE_EVENTS = [
   },
 ]
 
+
 export default function Home() {
   const { currentUser, logout } = useAuth()
   const { itinerary, addStop, removeStop } = useItinerary()
   const greeting = getGreeting()
   const displayName = getUserDisplayName(currentUser)
 
+
   const [upcomingEvents, setUpcomingEvents] = useState(SAMPLE_EVENTS)
   const [page, setPage] = useState(0)
   const [loadingEvents, setLoadingEvents] = useState(false)
 
+
   const itineraryIds = useMemo(() => new Set(itinerary.map((s) => String(s.id))), [itinerary])
+
 
   const apiKey =
     (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_TICKETMASTER_KEY) ||
     (typeof process !== 'undefined' && process.env && process.env.REACT_APP_TICKETMASTER_KEY) ||
     ''
 
+
   useEffect(() => {
     let cancelled = false
+
 
     async function fetchEvents() {
       if (!apiKey) return
 
+
       setLoadingEvents(true)
 
-      // Use ISO without milliseconds for Ticketmaster
+
       const startDateTime = toIsoNoMs(new Date())
+
 
       const url =
         `https://app.ticketmaster.com/discovery/v2/events.json` +
@@ -164,15 +170,17 @@ export default function Home() {
         `&size=20` +
         `&page=${page}`
 
+
       try {
         const res = await fetch(url)
         if (!res.ok) throw new Error(`Ticketmaster error ${res.status}`)
         const data = await res.json()
 
+
         const raw = data?._embedded?.events ?? []
         const normalized = raw.map(normalizeTicketmasterEvent)
 
-        // If Ticketmaster returns nothing, don't wipe the UI to empty
+
         if (!cancelled) {
           if (normalized.length === 0 && page === 0) {
             setUpcomingEvents(SAMPLE_EVENTS)
@@ -182,18 +190,20 @@ export default function Home() {
         }
       } catch (e) {
         console.error(e)
-        // On error, keep whatever is currently showing (don’t "break" UI)
       } finally {
         if (!cancelled) setLoadingEvents(false)
       }
     }
 
+
     fetchEvents()
+
 
     return () => {
       cancelled = true
     }
   }, [apiKey, page])
+
 
   const getCategoryIcon = (category) => {
     const c = (category || '').toLowerCase()
@@ -217,6 +227,7 @@ export default function Home() {
       </svg>
     )
   }
+
 
   return (
     <div className="min-h-screen bg-background overflow-hidden">
@@ -248,6 +259,7 @@ export default function Home() {
         </div>
       </nav>
 
+
       {/* ===== MAIN CONTENT ===== */}
       <main className="pt-24 pb-16 px-6">
         <div className="max-w-7xl mx-auto">
@@ -262,8 +274,10 @@ export default function Home() {
             </p>
           </section>
 
+
           {/* ===== ACTION CARDS ===== */}
-          <section className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-16">
+          {/* ✅ Changed from md:grid-cols-3 → md:grid-cols-2 so the 2 cards fill the row */}
+          <section className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-16">
             {ACTION_CARDS.map((card, i) => (
               <Link
                 key={card.title}
@@ -288,6 +302,7 @@ export default function Home() {
             ))}
           </section>
 
+
           {/* ===== BOTTOM PANELS ===== */}
           <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Your Itinerary */}
@@ -303,6 +318,7 @@ export default function Home() {
                   View All
                 </Link>
               </div>
+
 
               {itinerary.length === 0 ? (
                 <div className="text-center py-12">
@@ -332,6 +348,7 @@ export default function Home() {
                         {i + 1}
                       </div>
 
+
                       <div className="w-12 h-12 rounded-xl overflow-hidden bg-white/5 border border-white/10 shrink-0">
                         {stop.imageUrl ? (
                           <img
@@ -342,6 +359,7 @@ export default function Home() {
                           />
                         ) : null}
                       </div>
+
 
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-body text-white truncate">
@@ -359,6 +377,7 @@ export default function Home() {
                         )}
                       </div>
 
+
                       <button
                         type="button"
                         onClick={() => removeStop?.(stop.id)}
@@ -375,12 +394,14 @@ export default function Home() {
               )}
             </div>
 
+
             {/* Upcoming Events */}
             <div className="bg-surface/60 border border-white/5 rounded-2xl p-8 animate-fade-in-up animation-delay-800">
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-2xl font-heading font-semibold text-white">
                   Upcoming Events
                 </h2>
+
 
                 <button
                   type="button"
@@ -391,9 +412,11 @@ export default function Home() {
                 </button>
               </div>
 
+
               <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
                 {upcomingEvents.map((event) => {
                   const alreadyAdded = itineraryIds.has(String(event.id))
+
 
                   return (
                     <div
@@ -403,6 +426,7 @@ export default function Home() {
                       <div className="w-10 h-10 rounded-lg bg-cyan-glow/10 text-cyan-glow flex items-center justify-center shrink-0">
                         {getCategoryIcon(event.category)}
                       </div>
+
 
                       <div className="w-12 h-12 rounded-xl overflow-hidden bg-white/5 border border-white/10 shrink-0">
                         {event.imageUrl ? (
@@ -415,6 +439,7 @@ export default function Home() {
                         ) : null}
                       </div>
 
+
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-body text-white font-medium truncate">
                           {event.name}
@@ -424,11 +449,13 @@ export default function Home() {
                         </p>
                       </div>
 
+
                       <div className="text-right shrink-0">
                         <p className="text-xs text-primary font-body font-medium whitespace-nowrap">
                           {event.date}
                         </p>
                       </div>
+
 
                       <button
                         type="button"
@@ -453,12 +480,14 @@ export default function Home() {
                   )
                 })}
 
+
                 {loadingEvents && (
                   <p className="text-xs text-white/30 font-body pt-2 text-center">
                     Loading more…
                   </p>
                 )}
               </div>
+
 
               {!apiKey && (
                 <p className="text-xs text-white/30 font-body pt-3 text-center">
@@ -469,6 +498,7 @@ export default function Home() {
           </section>
         </div>
       </main>
+
 
       {/* ===== FOOTER ===== */}
       <footer className="border-t border-white/5 py-8 px-6">
