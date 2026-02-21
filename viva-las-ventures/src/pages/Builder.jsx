@@ -124,7 +124,8 @@ function formatEventDate(dateStr) {
   const datePart = dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
   if (isDateOnly) return datePart
 
-  return str.replace(',', ' •')
+  const timePart = dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  return `${datePart} • ${timePart}`
 }
 
 function getMinuteKey(dateStr) {
@@ -277,10 +278,12 @@ export default function Builder() {
   const [upcomingEvents, setUpcomingEvents] = useState([])
   const [page, setPage] = useState(0)
   const [loadingEvents, setLoadingEvents] = useState(false)
+  const [hasMoreEvents, setHasMoreEvents] = useState(true)
 
-  // Auto-scroll ref
+  // Upcoming Events infinite scroll refs
   const eventsListRef = useRef(null)
-  const prevEventCount = useRef(0)
+  const loadMoreSentinelRef = useRef(null)
+  const isPagingRef = useRef(false)
 
   // Filter UI
   const [showFilter, setShowFilter] = useState(false)
@@ -311,7 +314,9 @@ export default function Builder() {
 
     async function fetchEvents() {
       if (!apiKey) return
+      if (!hasMoreEvents && page > 0) return
       setLoadingEvents(true)
+      isPagingRef.current = true
 
       const startDateTime = toIsoNoMs(new Date())
       const url =
@@ -331,13 +336,18 @@ export default function Builder() {
         const raw = data?._embedded?.events ?? []
         const normalized = raw.map(normalizeTicketmasterEvent)
 
+        const totalPages = typeof data?.page?.totalPages === 'number' ? data.page.totalPages : null
+        const nextHasMore = totalPages == null ? normalized.length > 0 : page + 1 < totalPages
+
         if (!cancelled) {
           setUpcomingEvents((prev) => (page === 0 ? normalized : [...prev, ...normalized]))
+          setHasMoreEvents(nextHasMore)
         }
       } catch (e) {
         console.error(e)
       } finally {
         if (!cancelled) setLoadingEvents(false)
+        isPagingRef.current = false
       }
     }
 
@@ -345,7 +355,36 @@ export default function Builder() {
     return () => {
       cancelled = true
     }
-  }, [apiKey, page])
+  }, [apiKey, page, hasMoreEvents])
+
+  /* ============================= */
+  /* Infinite scroll (Upcoming)    */
+  /* ============================= */
+
+  useEffect(() => {
+    const root = eventsListRef.current
+    const target = loadMoreSentinelRef.current
+    if (!root || !target) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const first = entries[0]
+        if (!first?.isIntersecting) return
+        if (loadingEvents) return
+        if (!hasMoreEvents) return
+        if (isPagingRef.current) return
+        setPage((p) => p + 1)
+      },
+      {
+        root,
+        rootMargin: '200px',
+        threshold: 0,
+      }
+    )
+
+    observer.observe(target)
+    return () => observer.disconnect()
+  }, [loadingEvents, hasMoreEvents])
 
   /* ============================= */
   /* Firebase load on mount        */
@@ -435,13 +474,7 @@ export default function Builder() {
     })
   }, [upcomingEvents, itineraryTmIds, activeIconFilters])
 
-  // Automatically scroll down the Upcoming Events container when new pages are added
-  useEffect(() => {
-    if (page > 0 && eventsListRef.current && visibleUpcomingEvents.length > prevEventCount.current) {
-      eventsListRef.current.scrollBy({ top: 350, behavior: 'smooth' })
-    }
-    prevEventCount.current = visibleUpcomingEvents.length
-  }, [visibleUpcomingEvents, page])
+  // Note: removed auto-scroll; infinite scroll loads as you naturally scroll.
 
   const { nonCustomStops, customStops } = useMemo(() => {
     const nonCustom = []
@@ -776,12 +809,17 @@ export default function Builder() {
                 {!loadingEvents && visibleUpcomingEvents.length === 0 && (
                   <p className="text-xs text-white/30 font-body pt-2 text-center">No events match your filters.</p>
                 )}
-              </div>
 
-              <div className="pt-5 flex justify-center">
-                <button type="button" onClick={() => setPage((p) => p + 1)} className={PILL}>
-                  Load More
-                </button>
+                {/* Infinite scroll sentinel */}
+                <div ref={loadMoreSentinelRef} className="h-1" />
+
+                {!loadingEvents && hasMoreEvents && visibleUpcomingEvents.length > 0 && (
+                  <p className="text-[11px] text-white/20 font-body pt-2 text-center">Scroll for more…</p>
+                )}
+
+                {!loadingEvents && !hasMoreEvents && visibleUpcomingEvents.length > 0 && (
+                  <p className="text-[11px] text-white/20 font-body pt-2 text-center">You’re all caught up.</p>
+                )}
               </div>
             </div>
           </section>
