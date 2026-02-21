@@ -1,3 +1,86 @@
 ## Viva Las Ventures
 
 Viva Las Ventures is an AI-powered Las Vegas itinerary planner that helps locals and tourists discover live events and things-to-do in Las Vegas!
+
+
+Gemini said
+Here is a complete, professional README.md template tailored exactly to the architecture of your hackathon project. It includes all the necessary steps for the judges (or future you) to get the frontend, backend, and environment variables up and running.
+
+You can copy and paste this directly into your README.md file!
+
+🎲 AI-Powered Las Vegas Itinerary Planner
+A full-stack web application designed to help users build, manage, and optimize their perfect Las Vegas trip. Featuring an interactive drag-and-drop itinerary builder, live event integration via Ticketmaster, and a streaming AI Concierge that provides real-time, context-aware Vegas recommendations.
+
+✨ Features
+Global State Calendar: A chronological, multi-day itinerary view that seamlessly handles asynchronous user state.
+
+Smart Event Builder: Search and add real-world Las Vegas events, shows, and concerts directly to your schedule.
+
+AI Concierge: A streaming, personalized AI assistant powered by OpenAI to help you find hidden gems and plan your days.
+
+Persistent User Accounts: Secure login and real-time database syncing using Firebase Auth and Firestore. No data bleed across sessions!
+
+🛠️ Tech Stack
+Frontend: React (Context API for global state management), Tailwind CSS
+
+Backend: Node.js, Express.js, Server-Sent Events (SSE) for streaming
+
+Database & Auth: Firebase (Firestore & Authentication)
+
+External APIs: OpenAI API (Agentic AI), Ticketmaster API (Live Events)
+
+🚀 Getting Started
+Prerequisites
+Before you begin, ensure you have the following installed:
+
+Node.js (v16 or higher)
+
+A Firebase Project (with Auth and Firestore enabled)
+
+An OpenAI API Key
+
+A Ticketmaster Discovery API Key
+
+1. Clone the Repository
+Bash
+git clone https://github.com/your-username/your-repo-name.git
+cd your-repo-name
+2. Set Up Environment Variables
+You will need to create two .env files—one for the frontend and one for the backend.
+
+Frontend (/frontend/.env):
+Create a .env file in your frontend directory and add your Firebase and Ticketmaster credentials. (Note: If using Vite, prefix with VITE_. If using Create React App, prefix with REACT_APP_)
+
+Code snippet
+VITE_FIREBASE_API_KEY="your_firebase_api_key"
+VITE_FIREBASE_AUTH_DOMAIN="your_firebase_auth_domain"
+VITE_FIREBASE_PROJECT_ID="your_firebase_project_id"
+VITE_FIREBASE_STORAGE_BUCKET="your_firebase_storage_bucket"
+VITE_FIREBASE_MESSAGING_SENDER_ID="your_messaging_sender_id"
+VITE_FIREBASE_APP_ID="your_firebase_app_id"
+TICKETMASTER_API_KEY="your_ticketmaster_key"
+FEATHERLESS_API_KEY="your_featherless_key"
+Backend (/backend/.env):
+Create a .env file in your backend directory for your AI integration.
+
+Code snippet
+PORT=3001
+TICKETMASTER_API_KEY="your_ticketmaster_key"
+FEATHERLESS_API_KEY="your_featherless_key"
+
+3. Install Dependencies & Run the Backend
+Open a terminal, navigate to the backend folder, install the packages, and start the Express server.
+
+Bash
+cd backend
+npm install
+npm start
+# The server should now be running on http://localhost:3001
+4. Install Dependencies & Run the Frontend
+Open a new terminal window, navigate to the frontend folder, install the packages, and start the React development server.
+
+Bash
+cd frontend
+npm install
+npm run dev
+# The app should now be running on http://localhost:5173 (or 3000)
