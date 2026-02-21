@@ -9,7 +9,7 @@ import { useState, useRef, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useItinerary } from '../context/ItineraryContext'
-import Logo from '../components/logo'
+import Logo from '../components/Logo'
 
 const SUGGESTED_PROMPTS = [
   'What are the best free things to do in Vegas?',
@@ -18,8 +18,7 @@ const SUGGESTED_PROMPTS = [
   'What shows are worth seeing right now?',
 ]
 
-const API_URL = 'http://localhost:3001/api/chat'
-
+const API_URL = '/api/chat'
 /**
  * Lightweight markdown renderer — handles bold, italic, inline code,
  * code blocks, headers, unordered/ordered lists, and line breaks
@@ -92,14 +91,20 @@ function renderMarkdown(text) {
     }
 
     // Ordered list item
+    // Ordered list item
     if (/^\s*\d+[.)]\s+/.test(line)) {
       const items = []
+      
+      // Extract the actual starting number from the AI's text (e.g., the "3" in "3. Go to the casino")
+      const match = line.match(/^\s*(\d+)/)
+      const startNum = match ? parseInt(match[1], 10) : 1
+
       while (i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i])) {
         items.push(lines[i].replace(/^\s*\d+[.)]\s+/, ''))
         i++
       }
       elements.push(
-        <ol key={elements.length} className="list-decimal list-inside space-y-1 my-1.5 text-white/85">
+        <ol key={elements.length} start={startNum} className="list-decimal list-inside space-y-1 my-1.5 text-white/85">
           {items.map((item, idx) => (
             <li key={idx}>{inlineMarkdown(item)}</li>
           ))}
@@ -177,6 +182,10 @@ function inlineMarkdown(text) {
   return parts.length > 0 ? parts : text
 }
 
+// PUT THIS OUTSIDE/ABOVE your Concierge component
+const API_KEY = import.meta.env.VITE_TICKETMASTER_API_KEY
+
+
 export default function Concierge() {
   const { currentUser, logout } = useAuth()
   const { addStop } = useItinerary()
@@ -202,37 +211,51 @@ export default function Concierge() {
     const userMessage = text.trim()
     setInput('')
 
-    // Add user message to chat
-    setMessages((prev) => [...prev, { role: 'user', content: userMessage }])
+    // 1. Add user message to screen and turn on the 3 dots
+    const currentChatHistory = [...messages, { role: 'user', content: userMessage }]
+    setMessages(currentChatHistory)
     setLoading(true)
 
     try {
       const res = await fetch(API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: userMessage }),
+        body: JSON.stringify({ messages: currentChatHistory }), 
       })
 
-      if (!res.ok) {
-        throw new Error(`Server responded with ${res.status}`)
+      if (!res.ok) throw new Error(`Server responded with ${res.status}`)
+      
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let assistantMessage = ''
+      let isFirstChunk = true
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break 
+        
+        const chunk = decoder.decode(value, { stream: true })
+        assistantMessage += chunk
+
+        if (isFirstChunk) {
+          // 2. The AI started talking! Hide the dots and create the message box
+          setLoading(false)
+          isFirstChunk = false
+          setMessages((prev) => [...prev, { role: 'assistant', content: assistantMessage }])
+        } else {
+          // 3. Keep updating that message box with new words
+          setMessages((prev) => {
+            const newMessages = [...prev]
+            newMessages[newMessages.length - 1].content = assistantMessage
+            return newMessages
+          })
+        }
       }
-
-      const data = await res.json()
-
-      // Add assistant response
-      setMessages((prev) => [
-        ...prev,
-        { role: 'assistant', content: data.reply },
-      ])
     } catch (err) {
       console.error('Chat API error:', err)
       setMessages((prev) => [
         ...prev,
-        {
-          role: 'assistant',
-          content:
-            'Sorry, I ran into a problem connecting to the server. Make sure the backend is running (`node server.js` in the backend folder) and try again.',
-        },
+        { role: 'assistant', content: 'Sorry, I ran into a problem connecting to the server.' },
       ])
     } finally {
       setLoading(false)
