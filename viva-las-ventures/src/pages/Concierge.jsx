@@ -10,7 +10,7 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useItinerary } from '../context/ItineraryContext'
 import { chatWithClaude } from '../lib/anthropic'
-import Logo from '../components/Logo'
+import Logo from '../components/logo'
 
 const SUGGESTED_PROMPTS = [
   'What are the best free things to do in Vegas?',
