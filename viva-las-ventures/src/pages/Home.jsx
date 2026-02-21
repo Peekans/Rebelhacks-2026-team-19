@@ -5,14 +5,14 @@
  * - Navbar with logo and user name
  * - Greeting with time-of-day awareness
  * - Quick-action cards (Browse Events, Build Itinerary, AI Concierge)
- * - Itinerary summary panel (scrollable list + shows time/date)
- * - Upcoming events panel (fetches + images + add/remove + load more)
+ *
+ * NOTE: The itinerary + upcoming events panels were moved into /builder.
  */
 
 import { Link } from 'react-router-dom'
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
-import { useItinerary } from '../context/ItineraryContext'
+import Logo from '../components/logo'
 
 function getGreeting() {
   const hour = new Date().getHours()
@@ -64,26 +64,15 @@ function toIsoNoMs(d) {
 
 const ACTION_CARDS = [
   {
-    title: 'Browse Events',
-    description:
-      'Explore live shows, concerts, sports, and nightlife happening across Las Vegas.',
-    icon: (
-      <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 6v.75m0 3v.75m0 3v.75m0 3V18m-9-5.25h5.25M7.5 15h3M3.375 5.25c-.621 0-1.125.504-1.125 1.125v3.026a2.999 2.999 0 0 1 0 5.198v3.026c0 .621.504 1.125 1.125 1.125h17.25c.621 0 1.125-.504 1.125-1.125v-3.026a2.999 2.999 0 0 1 0-5.198V6.375c0-.621-.504-1.125-1.125-1.125H3.375Z" />
-      </svg>
-    ),
-    link: '/builder',
-  },
-  {
     title: 'Build Itinerary',
     description:
       'Drag and drop events, restaurants, and attractions into your perfect day plan.',
     icon: (
       <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5m-9-6h.008v.008H12v-.008ZM12 15h.008v.008H12V15Zm0 2.25h.008v.008H12v-.008ZM9.75 15h.008v.008H9.75V15Zm0 2.25h.008v.008H9.75v-.008ZM7.5 15h.008v.008H7.5V15Zm0 2.25h.008v.008H7.5v-.008Zm6.75-4.5h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V15Zm0 2.25h.008v.008h-.008v-.008Zm2.25-4.5h.008v.008H16.5v-.008Zm0 2.25h.008v.008H16.5V15Z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
       </svg>
     ),
-    link: '/builder',
+    link: '/builder', // ✅ moved panels into Builder
   },
   {
     title: 'AI Concierge',
@@ -98,36 +87,8 @@ const ACTION_CARDS = [
   },
 ]
 
-const SAMPLE_EVENTS = [
-  {
-    id: 1,
-    name: 'Cirque du Soleil: "O"',
-    venue: 'Bellagio Hotel & Casino',
-    date: 'Tonight, 7:00 PM',
-    category: 'Show',
-    imageUrl: '',
-  },
-  {
-    id: 2,
-    name: 'Bruno Mars Concert',
-    venue: 'Park MGM',
-    date: 'Tomorrow, 9:00 PM',
-    category: 'Concert',
-    imageUrl: '',
-  },
-  {
-    id: 3,
-    name: 'Raiders vs. Chiefs',
-    venue: 'Allegiant Stadium',
-    date: 'Sat, 5:30 PM',
-    category: 'Sports',
-    imageUrl: '',
-  },
-]
-
 export default function Home() {
   const { currentUser, logout } = useAuth()
-  const { itinerary, addStop, removeStop } = useItinerary()
   const greeting = getGreeting()
   const displayName = getUserDisplayName(currentUser)
 
@@ -261,8 +222,7 @@ export default function Home() {
           </section>
 
           {/* ===== ACTION CARDS ===== */}
-          <section className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-16">
-            {ACTION_CARDS.map((card, i) => (
+          <section className="grid grid-cols-1 md:grid-cols-2 gap-10 w-full">            {ACTION_CARDS.map((card, i) => (
               <Link
                 key={card.title}
                 to={card.link}
@@ -284,188 +244,6 @@ export default function Home() {
                 </div>
               </Link>
             ))}
-          </section>
-
-          {/* ===== BOTTOM PANELS ===== */}
-          <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Your Itinerary */}
-            <div className="bg-surface/60 border border-white/5 rounded-2xl p-8 animate-fade-in-up animation-delay-800">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-2xl font-heading font-semibold text-white">
-                  Your Itinerary
-                </h2>
-                {itinerary.length > 0 && (
-                  <Link
-                    to="/builder"
-                    className="text-sm text-cyan-glow hover:text-cyan-glow/80 transition-colors font-body"
-                  >
-                    Edit
-                  </Link>
-                )}
-              </div>
-
-              {itinerary.length === 0 ? (
-                <div className="text-center py-12">
-                  <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mx-auto mb-4">
-                    <svg className="w-8 h-8 text-white/20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
-                    </svg>
-                  </div>
-                  <p className="text-white/40 font-body text-sm mb-4">
-                    No stops added yet
-                  </p>
-                  <Link
-                    to="/builder"
-                    className="text-sm bg-primary/10 text-primary font-medium px-5 py-2 rounded-full hover:bg-primary/20 transition-colors"
-                  >
-                    Start Building
-                  </Link>
-                </div>
-              ) : (
-                <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
-                  {itinerary.map((stop, i) => (
-                    <div
-                      key={stop.id}
-                      className="flex items-center gap-4 bg-white/5 rounded-xl p-4"
-                    >
-                      <div className="w-8 h-8 rounded-lg bg-primary/20 text-primary flex items-center justify-center text-sm font-semibold font-body shrink-0">
-                        {i + 1}
-                      </div>
-
-                      <div className="w-12 h-12 rounded-xl overflow-hidden bg-white/5 border border-white/10 shrink-0">
-                        {stop.imageUrl ? (
-                          <img
-                            src={stop.imageUrl}
-                            alt={stop.name}
-                            className="w-full h-full object-cover"
-                            loading="lazy"
-                          />
-                        ) : null}
-                      </div>
-
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-body text-white truncate">
-                          {stop.name}
-                        </p>
-                        {stop.venue && (
-                          <p className="text-xs text-white/40 font-body truncate">
-                            {stop.venue}
-                          </p>
-                        )}
-                        {stop.date && (
-                          <p className="text-xs text-primary/80 font-body truncate">
-                            {stop.date}
-                          </p>
-                        )}
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => removeStop?.(stop.id)}
-                        className="w-8 h-8 rounded-lg bg-white/5 text-white/30 flex items-center justify-center hover:bg-red-500/15 hover:text-red-300 transition-colors shrink-0"
-                        title="Remove"
-                      >
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Upcoming Events */}
-            <div className="bg-surface/60 border border-white/5 rounded-2xl p-8 animate-fade-in-up animation-delay-800">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-2xl font-heading font-semibold text-white">
-                  Upcoming Events
-                </h2>
-
-                <button
-                  type="button"
-                  onClick={() => setPage((p) => p + 1)}
-                  className="text-sm text-cyan-glow hover:text-cyan-glow/80 transition-colors font-body"
-                >
-                  Load More
-                </button>
-              </div>
-
-              <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
-                {upcomingEvents.map((event) => {
-                  const alreadyAdded = itineraryIds.has(String(event.id))
-
-                  return (
-                    <div
-                      key={event.id}
-                      className="group flex items-center gap-4 bg-white/5 rounded-xl p-4 hover:bg-white/8 transition-colors"
-                    >
-                      <div className="w-10 h-10 rounded-lg bg-cyan-glow/10 text-cyan-glow flex items-center justify-center shrink-0">
-                        {getCategoryIcon(event.category)}
-                      </div>
-
-                      <div className="w-12 h-12 rounded-xl overflow-hidden bg-white/5 border border-white/10 shrink-0">
-                        {event.imageUrl ? (
-                          <img
-                            src={event.imageUrl}
-                            alt={event.name}
-                            className="w-full h-full object-cover"
-                            loading="lazy"
-                          />
-                        ) : null}
-                      </div>
-
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-body text-white font-medium truncate">
-                          {event.name}
-                        </p>
-                        <p className="text-xs text-white/40 font-body truncate">
-                          {event.venue}
-                        </p>
-                      </div>
-
-                      <div className="text-right shrink-0">
-                        <p className="text-xs text-primary font-body font-medium whitespace-nowrap">
-                          {event.date}
-                        </p>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (alreadyAdded) removeStop?.(event.id)
-                          else addStop?.(event)
-                        }}
-                        className="w-8 h-8 rounded-lg bg-white/5 text-white/30 flex items-center justify-center hover:bg-primary/20 hover:text-primary transition-colors shrink-0"
-                        title={alreadyAdded ? 'Remove from itinerary' : 'Add to itinerary'}
-                      >
-                        {alreadyAdded ? (
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14" />
-                          </svg>
-                        ) : (
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                          </svg>
-                        )}
-                      </button>
-                    </div>
-                  )
-                })}
-
-                {loadingEvents && (
-                  <p className="text-xs text-white/30 font-body pt-2 text-center">
-                    Loading more…
-                  </p>
-                )}
-              </div>
-
-              {!apiKey && (
-                <p className="text-xs text-white/30 font-body pt-3 text-center">
-                  Add VITE_TICKETMASTER_KEY (Vite) or REACT_APP_TICKETMASTER_KEY (CRA) to your .env to load real events.
-                </p>
-              )}
-            </div>
           </section>
         </div>
       </main>
