@@ -2,33 +2,6 @@
 
 Viva Las Ventures is an AI-powered Las Vegas itinerary planner that helps locals and tourists discover live events and things-to-do in Las Vegas!
 
-
-Gemini said
-Here is a complete, professional README.md template tailored exactly to the architecture of your hackathon project. It includes all the necessary steps for the judges (or future you) to get the frontend, backend, and environment variables up and running.
-
-You can copy and paste this directly into your README.md file!
-
-🎲 AI-Powered Las Vegas Itinerary Planner
-A full-stack web application designed to help users build, manage, and optimize their perfect Las Vegas trip. Featuring an interactive drag-and-drop itinerary builder, live event integration via Ticketmaster, and a streaming AI Concierge that provides real-time, context-aware Vegas recommendations.
-
-✨ Features
-Global State Calendar: A chronological, multi-day itinerary view that seamlessly handles asynchronous user state.
-
-Smart Event Builder: Search and add real-world Las Vegas events, shows, and concerts directly to your schedule.
-
-AI Concierge: A streaming, personalized AI assistant powered by OpenAI to help you find hidden gems and plan your days.
-
-Persistent User Accounts: Secure login and real-time database syncing using Firebase Auth and Firestore. No data bleed across sessions!
-
-🛠️ Tech Stack
-Frontend: React (Context API for global state management), Tailwind CSS
-
-Backend: Node.js, Express.js, Server-Sent Events (SSE) for streaming
-
-Database & Auth: Firebase (Firestore & Authentication)
-
-External APIs: OpenAI API (Agentic AI), Ticketmaster API (Live Events)
-
 🚀 Getting Started
 Prerequisites
 Before you begin, ensure you have the following installed:
@@ -37,7 +10,7 @@ Node.js (v16 or higher)
 
 A Firebase Project (with Auth and Firestore enabled)
 
-An OpenAI API Key
+An AI API Key from Featherless AI
 
 A Ticketmaster Discovery API Key
 
@@ -75,7 +48,7 @@ Bash
 cd backend
 npm install
 npm start
-# The server should now be running on http://localhost:3001
+The server should now be running on http://localhost:3001
 4. Install Dependencies & Run the Frontend
 Open a new terminal window, navigate to the frontend folder, install the packages, and start the React development server.
 
@@ -83,4 +56,4 @@ Bash
 cd frontend
 npm install
 npm run dev
-# The app should now be running on http://localhost:5173 (or 3000)
+The app should now be running on http://localhost:5173 (or 3000)
