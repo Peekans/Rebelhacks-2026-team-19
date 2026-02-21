@@ -20,7 +20,9 @@ import {
 } from "firebase/auth";
 
 import { auth } from "../lib/firebase";
-import Logo from "../components/logo";
+
+//import Logo from "../components/logo";
+
 
 export default function Login() {
   const navigate = useNavigate();
@@ -142,7 +144,7 @@ export default function Login() {
       <nav className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-md border-b border-white/5">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-3">
-            <Logo size={36} />
+            {/*<Logo size={36} />*/}
             <span className="font-heading text-lg text-white tracking-wide">
               Viva Las Ventures
             </span>

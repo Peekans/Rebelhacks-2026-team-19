@@ -1,5 +1,5 @@
 /**
- * Builder Page
+ * Builder Page — Drag-and-Drop Itinerary Builder
  *
  * Features:
  * - Ticketmaster Upcoming Events + images
