@@ -7,7 +7,7 @@
  */
 
 import { Link } from 'react-router-dom'
-import Logo from '../components/Logo'
+import Logo from '../components/logo'
 import Banner from '../components/Banner'
 
 const FEATURES = [
