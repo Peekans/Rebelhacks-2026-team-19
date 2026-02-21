@@ -5,18 +5,53 @@
  * - Ticketmaster Upcoming Events + images
  * - Add to itinerary (added events disappear from Upcoming list)
  * - Remove from itinerary
+ * - Conflict warning for same start minute
  * - Add Custom Event modal (name + start date/time + icon)
- *
- * Updates:
- * - Custom events do NOT render a thumbnail/picture slot
- * - Itinerary list is separated into "Events" and "Custom Events"
+ * - Custom events have NO picture
+ * - Itinerary separated into "Events" and "Custom Events"
+ * - Filter Upcoming Events by icon type
+ * - Load More moved to bottom and centered
+ * - Human-friendly time formatting
+ * - Auto-scroll on Load More
+ * - Shared Calendar Widget integration
+ * - Firebase save/load itinerary
+ * - Toast notifications
  */
 
 import { Link } from 'react-router-dom'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useItinerary } from '../context/ItineraryContext'
 import Logo from '../components/logo'
+import CalendarWidget from '../components/CalendarWidget'
+import { doc, setDoc, getDoc } from 'firebase/firestore'
+import { db } from '../lib/firebase'
+
+/* ============================= */
+/* Firebase helpers              */
+/* ============================= */
+
+const saveItineraryToFirestore = async (currentUser, itinerary) => {
+  if (!currentUser) {
+    alert('You must be logged in to save your itinerary.')
+    return
+  }
+
+  try {
+    const itineraryRef = doc(db, 'itineraries', currentUser.uid)
+    await setDoc(itineraryRef, {
+      stops: itinerary,
+      updatedAt: new Date().toISOString()
+    }, { merge: true })
+  } catch (error) {
+    console.error('Error saving to Firestore:', error)
+    throw error
+  }
+}
+
+/* ============================= */
+/* Helpers                       */
+/* ============================= */
 
 function getUserDisplayName(user) {
   if (!user) return 'Guest'
@@ -37,15 +72,71 @@ function toIsoNoMs(d) {
   return new Date(d.getTime() - d.getMilliseconds()).toISOString().replace('.000', '')
 }
 
-function getMinuteKey(dateStr) {
-  if (!dateStr || typeof dateStr !== 'string') return ''
-  const parts = dateStr.trim().split(' ')
-  if (parts.length >= 2) {
-    const d = parts[0]
-    const t = parts[1].slice(0, 5)
-    if (d.includes('-') && t.includes(':')) return `${d} ${t}`
+/**
+ * Robust local parser.
+ * Supports:
+ * - "YYYY-MM-DD"
+ * - "YYYY-MM-DD HH:MM"
+ * - "YYYY-MM-DD HH:MM:SS"
+ * - ISO: "YYYY-MM-DDTHH:MM:SSZ" (or with offset)
+ */
+function parseLocalDateTime(dateStr) {
+  if (!dateStr || typeof dateStr !== 'string') return null
+  let s = dateStr.trim()
+  if (!s) return null
+
+  // ISO-like
+  if (s.includes('T')) {
+    const d = new Date(s)
+    if (!Number.isNaN(d.getTime())) return d
+    s = s.replace('T', ' ').replace(/Z$/, '').replace(/[+-]\d{2}:\d{2}$/, '')
   }
-  return ''
+
+  // Date only
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const [y, m, d] = s.split('-').map(Number)
+    if (!y || !m || !d) return null
+    return new Date(y, m - 1, d)
+  }
+
+  // "YYYY-MM-DD HH:MM(:SS)?"
+  const parts = s.split(/\s+/)
+  if (parts.length < 2) return null
+  const [y, m, d] = parts[0].split('-').map(Number)
+  if (!y || !m || !d) return null
+
+  const t = parts[1].split('.')[0]
+  const tp = t.split(':').map(Number)
+  const hh = tp[0]
+  const mm = tp[1]
+  const ss = tp[2] ?? 0
+  if (hh == null || mm == null) return null
+  return new Date(y, m - 1, d, hh, mm, ss)
+}
+
+function formatEventDate(dateStr) {
+  const dt = parseLocalDateTime(dateStr)
+  if (!dt) return dateStr || 'Time TBD'
+
+  const trimmed = (dateStr || '').trim()
+  const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(trimmed)
+
+  const datePart = dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  if (isDateOnly) return datePart
+
+  const timePart = dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  return `${datePart} • ${timePart}`
+}
+
+function getMinuteKey(dateStr) {
+  const dt = parseLocalDateTime(dateStr)
+  if (!dt) return ''
+  const yyyy = dt.getFullYear()
+  const mm = String(dt.getMonth() + 1).padStart(2, '0')
+  const dd = String(dt.getDate()).padStart(2, '0')
+  const hh = String(dt.getHours()).padStart(2, '0')
+  const mi = String(dt.getMinutes()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd} ${hh}:${mi}`
 }
 
 function displayFromDateTimeLocal(v) {
@@ -55,62 +146,56 @@ function displayFromDateTimeLocal(v) {
   return `${d} ${t}:00`
 }
 
+function inferIconTypeFromCategory(category) {
+  const c = (category || '').toLowerCase()
+  if (c.includes('music') || c.includes('concert')) return 'music'
+  if (c.includes('sport')) return 'ticket'
+  if (c.includes('food') || c.includes('dining') || c.includes('restaurant')) return 'food'
+  if (c.includes('theatre') || c.includes('theater') || c.includes('arts') || c.includes('show')) return 'sparkles'
+  if (c.includes('attraction') || c.includes('tour') || c.includes('travel')) return 'map'
+  return 'ticket'
+}
+
 function normalizeTicketmasterEvent(e) {
-  const venue =
-    e?._embedded?.venues?.[0]?.name ||
-    e?._embedded?.venues?.[0]?.address?.line1 ||
-    'Unknown venue'
+  const venue = e?._embedded?.venues?.[0]?.name || e?._embedded?.venues?.[0]?.address?.line1 || 'Unknown venue'
 
   const localDate = e?.dates?.start?.localDate || ''
-  const localTime = e?.dates?.start?.localTime || ''
-  const date = [localDate, localTime].filter(Boolean).join(' ') || 'Time TBD'
+  let localTime = e?.dates?.start?.localTime || ''
+
+  // Default time if Ticketmaster only provides a date.
+  if (localDate && !localTime) {
+    localTime = '12:00:00'
+  }
+
+  const dateRaw = [localDate, localTime].filter(Boolean).join(' ') || 'Time TBD'
+  const date = dateRaw === 'Time TBD' ? 'Time TBD' : formatEventDate(dateRaw)
+  const minuteKey = dateRaw === 'Time TBD' ? '' : getMinuteKey(dateRaw)
 
   return {
     id: e.id,
     name: e.name || 'Untitled Event',
     venue,
+    dateRaw,
     date,
+    minuteKey,
     imageUrl: pickBestImage(e.images),
     category: e?.classifications?.[0]?.segment?.name || 'Event',
     iconKey: null,
   }
 }
 
-const SAMPLE_EVENTS = [
-  {
-    id: 'sample-1',
-    name: 'Cirque du Soleil: "O"',
-    venue: 'Bellagio Hotel & Casino',
-    date: 'Tonight, 7:00 PM',
-    category: 'Show',
-    imageUrl: '',
-    iconKey: null,
-  },
-  {
-    id: 'sample-2',
-    name: 'Bruno Mars Concert',
-    venue: 'Park MGM',
-    date: 'Tomorrow, 9:00 PM',
-    category: 'Concert',
-    imageUrl: '',
-    iconKey: null,
-  },
-  {
-    id: 'sample-3',
-    name: 'Raiders vs. Chiefs',
-    venue: 'Allegiant Stadium',
-    date: 'Sat, 5:30 PM',
-    category: 'Sports',
-    imageUrl: '',
-    iconKey: null,
-  },
-]
+/* ============================= */
+/* Icons                         */
+/* ============================= */
 
-// ---------- Icon system ----------
 function IconTicket(props) {
   return (
     <svg {...props} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M3.375 5.25c-.621 0-1.125.504-1.125 1.125v3.026a2.999 2.999 0 0 1 0 5.198v3.026c0 .621.504 1.125 1.125 1.125h17.25c.621 0 1.125-.504 1.125-1.125v-3.026a2.999 2.999 0 0 1 0-5.198V6.375c0-.621-.504-1.125-1.125-1.125H3.375Z" />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M3.375 5.25c-.621 0-1.125.504-1.125 1.125v3.026a2.999 2.999 0 0 1 0 5.198v3.026c0 .621.504 1.125 1.125 1.125h17.25c.621 0 1.125-.504 1.125-1.125v-3.026a2.999 2.999 0 0 1 0-5.198V6.375c0-.621-.504-1.125-1.125-1.125H3.375Z"
+      />
       <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6" />
     </svg>
   )
@@ -118,17 +203,27 @@ function IconTicket(props) {
 function IconMusic(props) {
   return (
     <svg {...props} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="m9 9 10.5-3m0 6.553v3.75a2.25 2.25 0 0 1-1.632 2.163l-1.32.377a1.803 1.803 0 1 1-.99-3.467l2.31-.66a2.25 2.25 0 0 0 1.632-2.163Zm0 0V2.25L9 5.25v10.303m0 0v3.75a2.25 2.25 0 0 1-1.632 2.163l-1.32.377a1.803 1.803 0 0 1-.99-3.467l2.31-.66A2.25 2.25 0 0 0 9 15.553Z" />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="m9 9 10.5-3m0 6.553v3.75a2.25 2.25 0 0 1-1.632 2.163l-1.32.377a1.803 1.803 0 1 1-.99-3.467l2.31-.66a2.25 2.25 0 0 0 1.632-2.163Zm0 0V2.25L9 5.25v10.303m0 0v3.75a2.25 2.25 0 0 1-1.632 2.163l-1.32.377a1.803 1.803 0 0 1-.99-3.467l2.31-.66A2.25 2.25 0 0 0 9 15.553Z"
+      />
     </svg>
   )
 }
+
 function IconSparkles(props) {
   return (
     <svg {...props} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z"
+      />
     </svg>
   )
 }
+
 function IconFood(props) {
   return (
     <svg {...props} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}>
@@ -139,6 +234,7 @@ function IconFood(props) {
     </svg>
   )
 }
+
 function IconMap(props) {
   return (
     <svg {...props} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}>
@@ -161,52 +257,67 @@ function getIconByKey(iconKey) {
   return ICON_CHOICES.find((c) => c.key === iconKey)?.Icon || null
 }
 
-function getCategoryIcon(category, iconKey) {
-  const Override = iconKey ? getIconByKey(iconKey) : null
+function getCategoryIcon(category, iconKeyOrType) {
+  const Override = iconKeyOrType ? getIconByKey(iconKeyOrType) : null
   if (Override) return <Override className="w-5 h-5" />
-
-  const c = (category || '').toLowerCase()
-  if (c.includes('music') || c.includes('concert')) return <IconMusic className="w-5 h-5" />
-  if (c.includes('sport')) {
-    return (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 18.75h-9m9 0a3 3 0 0 1 3 3h-15a3 3 0 0 1 3-3m9 0v-3.375c0-.621-.503-1.125-1.125-1.125h-.871M7.5 18.75v-3.375c0-.621.504-1.125 1.125-1.125h.872m5.007 0H9.497m5.007 0a7.454 7.454 0 0 1-.982-3.172M9.497 14.25a7.454 7.454 0 0 0 .982-3.172M12 3.75a3.75 3.75 0 0 0-3.75 3.75 7.5 7.5 0 0 0 3.75 6.497 7.5 7.5 0 0 0 3.75-6.497A3.75 3.75 0 0 0 12 3.75Z" />
-      </svg>
-    )
-  }
-  return <IconTicket className="w-5 h-5" />
+  const inferred = inferIconTypeFromCategory(category)
+  const InferredIcon = getIconByKey(inferred) || IconTicket
+  return <InferredIcon className="w-5 h-5" />
 }
+
+/* ============================= */
+/* Component                     */
+/* ============================= */
 
 export default function Builder() {
   const { currentUser, logout } = useAuth()
   const displayName = getUserDisplayName(currentUser)
+  const { itinerary, addStop, removeStop, clearItinerary } = useItinerary()
 
-  const { itinerary, addStop, removeStop } = useItinerary()
-
-  const [upcomingEvents, setUpcomingEvents] = useState(SAMPLE_EVENTS)
+  const [upcomingEvents, setUpcomingEvents] = useState([])
   const [page, setPage] = useState(0)
   const [loadingEvents, setLoadingEvents] = useState(false)
+  const [hasMoreEvents, setHasMoreEvents] = useState(true)
 
-  // Custom event modal state
+  // Upcoming Events infinite scroll refs
+  const eventsListRef = useRef(null)
+  const loadMoreSentinelRef = useRef(null)
+  const isPagingRef = useRef(false)
+
+  // Filter UI
+  const [showFilter, setShowFilter] = useState(false)
+  const [activeIconFilters, setActiveIconFilters] = useState({
+    ticket: true,
+    music: true,
+    sparkles: true,
+    food: true,
+    map: true,
+  })
+
   const [showCustomModal, setShowCustomModal] = useState(false)
   const [customName, setCustomName] = useState('')
-  const [customDateTime, setCustomDateTime] = useState('') // datetime-local
+  const [customDateTime, setCustomDateTime] = useState('')
   const [customIconKey, setCustomIconKey] = useState('ticket')
 
-  const apiKey =
-    (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_TICKETMASTER_KEY) ||
-    (typeof process !== 'undefined' && process.env && process.env.REACT_APP_TICKETMASTER_KEY) ||
-    ''
+  // Toast
+  const [toastMessage, setToastMessage] = useState('')
+
+  const apiKey = import.meta.env.VITE_TICKETMASTER_KEY || ''
+
+  /* ============================= */
+  /* Fetch Ticketmaster events     */
+  /* ============================= */
 
   useEffect(() => {
     let cancelled = false
 
     async function fetchEvents() {
       if (!apiKey) return
+      if (!hasMoreEvents && page > 0) return
       setLoadingEvents(true)
+      isPagingRef.current = true
 
       const startDateTime = toIsoNoMs(new Date())
-
       const url =
         `https://app.ticketmaster.com/discovery/v2/events.json` +
         `?apikey=${encodeURIComponent(apiKey)}` +
@@ -221,21 +332,21 @@ export default function Builder() {
         const res = await fetch(url)
         if (!res.ok) throw new Error(`Ticketmaster error ${res.status}`)
         const data = await res.json()
-
         const raw = data?._embedded?.events ?? []
         const normalized = raw.map(normalizeTicketmasterEvent)
 
+        const totalPages = typeof data?.page?.totalPages === 'number' ? data.page.totalPages : null
+        const nextHasMore = totalPages == null ? normalized.length > 0 : page + 1 < totalPages
+
         if (!cancelled) {
-          if (normalized.length === 0 && page === 0) {
-            setUpcomingEvents(SAMPLE_EVENTS)
-          } else {
-            setUpcomingEvents((prev) => (page === 0 ? normalized : [...prev, ...normalized]))
-          }
+          setUpcomingEvents((prev) => (page === 0 ? normalized : [...prev, ...normalized]))
+          setHasMoreEvents(nextHasMore)
         }
       } catch (e) {
         console.error(e)
       } finally {
         if (!cancelled) setLoadingEvents(false)
+        isPagingRef.current = false
       }
     }
 
@@ -243,7 +354,97 @@ export default function Builder() {
     return () => {
       cancelled = true
     }
-  }, [apiKey, page])
+  }, [apiKey, page, hasMoreEvents])
+
+  /* ============================= */
+  /* Infinite scroll (Upcoming)    */
+  /* ============================= */
+
+  useEffect(() => {
+    const root = eventsListRef.current
+    const target = loadMoreSentinelRef.current
+    if (!root || !target) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const first = entries[0]
+        if (!first?.isIntersecting) return
+        if (loadingEvents) return
+        if (!hasMoreEvents) return
+        if (isPagingRef.current) return
+        setPage((p) => p + 1)
+      },
+      {
+        root,
+        rootMargin: '200px',
+        threshold: 0,
+      }
+    )
+
+    observer.observe(target)
+    return () => observer.disconnect()
+  }, [loadingEvents, hasMoreEvents])
+
+  /* ============================= */
+  /* Firebase load on mount        */
+  /* ============================= */
+
+  useEffect(() => {
+    if (currentUser) {
+      loadItineraryFromFirestore()
+    } else {
+      if (clearItinerary) clearItinerary()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser])
+
+  const loadItineraryFromFirestore = async () => {
+    if (!currentUser) return
+
+    try {
+      if (clearItinerary) clearItinerary()
+      const itineraryRef = doc(db, 'itineraries', currentUser.uid)
+      const docSnap = await getDoc(itineraryRef)
+
+      if (docSnap.exists()) {
+        const savedData = docSnap.data()
+        if (savedData.stops && savedData.stops.length > 0) {
+          savedData.stops.forEach((stop) => {
+            addStop?.(stop)
+          })
+        }
+      } else {
+        console.log('No saved itinerary found for this user.')
+      }
+    } catch (error) {
+      console.error('Error loading itinerary from Firestore:', error)
+    }
+  }
+
+  /* ============================= */
+  /* Toast helper                  */
+  /* ============================= */
+
+  const showToast = (message) => {
+    setToastMessage(message)
+    setTimeout(() => {
+      setToastMessage('')
+    }, 3000)
+  }
+
+  const handleSaveItinerary = async () => {
+    try {
+      await saveItineraryToFirestore(currentUser, itinerary)
+      showToast('Itinerary saved successfully!')
+    } catch (error) {
+      console.error(error)
+      showToast('Error saving itinerary.')
+    }
+  }
+
+  /* ============================= */
+  /* Derived data                  */
+  /* ============================= */
 
   const itineraryTmIds = useMemo(() => {
     const s = new Set()
@@ -254,11 +455,26 @@ export default function Builder() {
     return s
   }, [itinerary])
 
-  const visibleUpcomingEvents = useMemo(() => {
-    return upcomingEvents.filter((e) => !itineraryTmIds.has(String(e.id)))
-  }, [upcomingEvents, itineraryTmIds])
+  const itineraryMinuteKeys = useMemo(() => {
+    const set = new Set()
+    for (const stop of itinerary) {
+      const raw = stop.dateRaw || stop.date
+      const k = stop.minuteKey || getMinuteKey(raw)
+      if (k) set.add(k)
+    }
+    return set
+  }, [itinerary])
 
-  // Split itinerary into two groups
+  const visibleUpcomingEvents = useMemo(() => {
+    const base = upcomingEvents.filter((e) => !itineraryTmIds.has(String(e.id)))
+    return base.filter((e) => {
+      const iconType = e.iconKey || inferIconTypeFromCategory(e.category)
+      return !!activeIconFilters[iconType]
+    })
+  }, [upcomingEvents, itineraryTmIds, activeIconFilters])
+
+  // Note: removed auto-scroll; infinite scroll loads as you naturally scroll.
+
   const { nonCustomStops, customStops } = useMemo(() => {
     const nonCustom = []
     const custom = []
@@ -270,15 +486,9 @@ export default function Builder() {
     return { nonCustomStops: nonCustom, customStops: custom }
   }, [itinerary])
 
-  // (optional) same-minute conflicts for upcoming list
-  const itineraryMinuteKeys = useMemo(() => {
-    const set = new Set()
-    for (const stop of itinerary) {
-      const k = getMinuteKey(stop.date)
-      if (k) set.add(k)
-    }
-    return set
-  }, [itinerary])
+  /* ============================= */
+  /* Actions                       */
+  /* ============================= */
 
   function resetCustomModal() {
     setCustomName('')
@@ -288,75 +498,60 @@ export default function Builder() {
 
   function submitCustomEvent(e) {
     e.preventDefault()
-
     const trimmed = customName.trim()
     if (!trimmed) return
 
-    const dateDisplay = displayFromDateTimeLocal(customDateTime)
-    const minuteKey = getMinuteKey(dateDisplay)
+    const dateRaw = displayFromDateTimeLocal(customDateTime)
+    const date = dateRaw === 'Time TBD' ? 'Time TBD' : formatEventDate(dateRaw)
+    const minuteKey = getMinuteKey(dateRaw)
 
     const sourceId =
-      (typeof crypto !== 'undefined' && crypto.randomUUID)
+      typeof crypto !== 'undefined' && crypto.randomUUID
         ? `custom-${crypto.randomUUID()}`
         : `custom-${Date.now()}`
 
     addStop?.({
-      tmId: sourceId, // used for filtering logic (not shown)
+      tmId: sourceId,
       name: trimmed,
       venue: 'Custom event',
-      date: dateDisplay,
+      dateRaw,
+      date,
       category: 'Custom',
       iconKey: customIconKey,
       minuteKey,
-      // NOTE: no imageUrl field at all for custom
     })
 
     setShowCustomModal(false)
     resetCustomModal()
   }
 
-  // Shared renderer for itinerary rows
+  const ROW_CLASS =
+    'group flex items-center gap-4 bg-white/5 rounded-xl px-4 py-4 hover:bg-white/8 transition-colors min-h-[84px]'
+
   function ItineraryRow({ stop, indexLabel }) {
     const isCustom = String(stop.category || '').toLowerCase() === 'custom'
     const hasImage = !!stop.imageUrl && !isCustom
 
     return (
-      <div className="flex items-center gap-4 bg-white/5 rounded-xl p-4">
+      <div className={ROW_CLASS}>
         <div className="w-8 h-8 rounded-lg bg-primary/20 text-primary flex items-center justify-center text-sm font-semibold font-body shrink-0">
           {indexLabel}
         </div>
 
-        {/* Icon badge */}
         <div className="w-10 h-10 rounded-lg bg-cyan-glow/10 text-cyan-glow flex items-center justify-center shrink-0">
           {getCategoryIcon(stop.category, stop.iconKey)}
         </div>
 
-        {/* Thumbnail ONLY for non-custom events that have an image */}
         {hasImage && (
-          <div className="w-12 h-12 rounded-xl overflow-hidden bg-white/5 border border-white/10 shrink-0">
-            <img
-              src={stop.imageUrl}
-              alt={stop.name}
-              className="w-full h-full object-cover"
-              loading="lazy"
-            />
+          <div className="w-12 h-12 rounded-xl overflow-hidden bg-white/5 border border-white/10 shrink-0 flex items-center justify-center">
+            <img src={stop.imageUrl} alt={stop.name} className="w-full h-full object-cover" loading="lazy" />
           </div>
         )}
 
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-body text-white truncate">
-            {stop.name}
-          </p>
-          {stop.venue && (
-            <p className="text-xs text-white/40 font-body truncate">
-              {stop.venue}
-            </p>
-          )}
-          {stop.date && (
-            <p className="text-xs text-primary/80 font-body truncate">
-              {stop.date}
-            </p>
-          )}
+          <p className="text-sm font-body text-white truncate">{stop.name}</p>
+          {stop.venue && <p className="text-xs text-white/40 font-body truncate">{stop.venue}</p>}
+          {(stop.date) && <p className="text-xs text-primary/80 font-body truncate">{stop.date}</p>}
         </div>
 
         <button
@@ -373,135 +568,105 @@ export default function Builder() {
     )
   }
 
+  const PILL =
+    'text-sm bg-white/5 hover:bg-white/10 border border-white/10 text-white/70 hover:text-white px-6 py-2 rounded-full transition-colors font-body'
+
   return (
     <div className="min-h-screen bg-background overflow-hidden">
-      {/* ===== NAVBAR ===== */}
       <nav className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-md border-b border-white/5">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           <Link to="/home" className="flex items-center gap-3">
             <Logo size={36} />
-            <span className="font-heading text-lg text-white tracking-wide">
-              Viva Las Ventures
-            </span>
+            <span className="font-heading text-lg text-white tracking-wide">Viva Las Ventures</span>
           </Link>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-full bg-primary/20 border border-primary/40 flex items-center justify-center text-primary text-sm font-semibold">
                 {displayName.charAt(0).toUpperCase()}
               </div>
-              <span className="text-sm text-accent/80 font-body hidden sm:block">
-                {displayName}
-              </span>
+              <span className="text-sm text-accent/80 font-body hidden sm:block">{displayName}</span>
             </div>
-            <button
-              onClick={logout}
-              className="text-sm text-white/40 hover:text-white transition-colors font-body"
-            >
+            <button onClick={logout} className="text-sm text-white/40 hover:text-white transition-colors font-body">
               Log out
             </button>
           </div>
         </div>
       </nav>
 
-      {/* ===== MAIN ===== */}
       <main className="pt-24 pb-16 px-6">
         <div className="max-w-7xl mx-auto">
           <div className="flex items-center justify-between mb-8">
             <div>
-              <h1 className="text-3xl sm:text-4xl font-heading font-bold text-white">
-                Build Itinerary
-              </h1>
-              <p className="text-white/50 font-body mt-2">
-                Add events from the right panel to your itinerary on the left.
-              </p>
+              <h1 className="text-3xl sm:text-4xl font-heading font-bold text-white">Build Itinerary</h1>
+              <p className="text-white/50 font-body mt-2">Add events from the right panel to your itinerary on the left.</p>
             </div>
-            <Link
-              to="/home"
-              className="text-sm text-cyan-glow hover:text-cyan-glow/80 transition-colors font-body"
-            >
+            <Link to="/home" className="text-sm text-cyan-glow hover:text-cyan-glow/80 transition-colors font-body">
               Back to Home
             </Link>
           </div>
 
           <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Your Itinerary */}
             <div className="bg-surface/60 border border-white/5 rounded-2xl p-8">
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-2xl font-heading font-semibold text-white">
-                  Your Itinerary
-                </h2>
+                <h2 className="text-2xl font-heading font-semibold text-white">Your Itinerary</h2>
 
-                <button
-                  type="button"
-                  onClick={() => setShowCustomModal(true)}
-                  className="text-sm bg-white/5 hover:bg-white/10 border border-white/10 text-white/70 hover:text-white px-4 py-2 rounded-full transition-colors font-body"
-                >
-                  + Custom
-                </button>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowCustomModal(true)}
+                    className="text-sm bg-white/5 hover:bg-white/10 border border-white/10 text-white/70 hover:text-white px-4 py-2 rounded-full transition-colors font-body"
+                  >
+                    + Custom
+                  </button>
+
+                  {/* SAVE BUTTON */}
+                  <button
+                    type="button"
+                    onClick={handleSaveItinerary}
+                    className="text-sm bg-cyan-glow/15 hover:bg-cyan-glow/25 border border-cyan-glow/30 text-cyan-glow px-4 py-2 rounded-full transition-colors font-body"
+                  >
+                    Save to Calendar
+                  </button>
+                </div>
               </div>
 
               {itinerary.length === 0 ? (
                 <div className="text-center py-12">
-                  <p className="text-white/40 font-body text-sm">
-                    No stops added yet
-                  </p>
+                  <p className="text-white/40 font-body text-sm">No stops added yet</p>
                 </div>
               ) : (
-                <div className="max-h-[520px] overflow-y-auto pr-1">
-                  {/* Events */}
+                <div className="max-h-[520px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
                   <div className="mb-4">
                     <div className="flex items-center justify-between px-1 mb-3">
-                      <p className="text-xs tracking-wide uppercase text-white/40 font-body">
-                        Events
-                      </p>
-                      <p className="text-xs text-white/30 font-body">
-                        {nonCustomStops.length}
-                      </p>
+                      <p className="text-xs tracking-wide uppercase text-white/40 font-body">Events</p>
+                      <p className="text-xs text-white/30 font-body">{nonCustomStops.length}</p>
                     </div>
 
                     {nonCustomStops.length === 0 ? (
-                      <p className="text-xs text-white/30 font-body px-1">
-                        No events yet.
-                      </p>
+                      <p className="text-xs text-white/30 font-body px-1">No events yet.</p>
                     ) : (
                       <div className="space-y-3">
                         {nonCustomStops.map((stop, i) => (
-                          <ItineraryRow
-                            key={stop.id}
-                            stop={stop}
-                            indexLabel={i + 1}
-                          />
+                          <ItineraryRow key={stop.id} stop={stop} indexLabel={i + 1} />
                         ))}
                       </div>
                     )}
                   </div>
 
-                  {/* Divider */}
                   <div className="my-6 border-t border-white/10" />
 
-                  {/* Custom Events */}
                   <div>
                     <div className="flex items-center justify-between px-1 mb-3">
-                      <p className="text-xs tracking-wide uppercase text-white/40 font-body">
-                        Custom Events
-                      </p>
-                      <p className="text-xs text-white/30 font-body">
-                        {customStops.length}
-                      </p>
+                      <p className="text-xs tracking-wide uppercase text-white/40 font-body">Custom Events</p>
+                      <p className="text-xs text-white/30 font-body">{customStops.length}</p>
                     </div>
 
                     {customStops.length === 0 ? (
-                      <p className="text-xs text-white/30 font-body px-1">
-                        No custom events yet.
-                      </p>
+                      <p className="text-xs text-white/30 font-body px-1">No custom events yet.</p>
                     ) : (
                       <div className="space-y-3">
                         {customStops.map((stop, i) => (
-                          <ItineraryRow
-                            key={stop.id}
-                            stop={stop}
-                            indexLabel={i + 1}
-                          />
+                          <ItineraryRow key={stop.id} stop={stop} indexLabel={i + 1} />
                         ))}
                       </div>
                     )}
@@ -510,73 +675,123 @@ export default function Builder() {
               )}
             </div>
 
-            {/* Upcoming Events */}
             <div className="bg-surface/60 border border-white/5 rounded-2xl p-8">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-2xl font-heading font-semibold text-white">
-                  Upcoming Events
-                </h2>
+              <div className="flex items-center justify-between mb-6 relative">
+                <h2 className="text-2xl font-heading font-semibold text-white">Upcoming Events</h2>
 
-                <button
-                  type="button"
-                  onClick={() => setPage((p) => p + 1)}
-                  className="text-sm text-cyan-glow hover:text-cyan-glow/80 transition-colors font-body"
-                >
-                  Load More
-                </button>
-              </div>
+                <div className="relative">
+                  <button type="button" onClick={() => setShowFilter((v) => !v)} className={PILL}>
+                    Filter
+                  </button>
 
-              <div className="space-y-3 max-h-[520px] overflow-y-auto pr-1">
-                {visibleUpcomingEvents.map((event) => {
-                  const minuteKey = getMinuteKey(event.date)
-                  const hasConflict = minuteKey && itineraryMinuteKeys.has(minuteKey)
+                  {showFilter && (
+                    <div className="absolute right-0 mt-3 w-72 rounded-2xl bg-surface/95 border border-white/10 shadow-xl p-4 z-50">
+                      <p className="text-xs uppercase tracking-wide text-white/40 font-body mb-3">Icon Types</p>
 
-                  return (
-                    <div
-                      key={event.id}
-                      className="group flex items-center gap-4 bg-white/5 rounded-xl p-4 hover:bg-white/8 transition-colors"
-                    >
-                      <div className="w-10 h-10 rounded-lg bg-cyan-glow/10 text-cyan-glow flex items-center justify-center shrink-0">
-                        {getCategoryIcon(event.category, event.iconKey)}
-                      </div>
-
-                      <div className="w-12 h-12 rounded-xl overflow-hidden bg-white/5 border border-white/10 shrink-0">
-                        {event.imageUrl ? (
-                          <img
-                            src={event.imageUrl}
-                            alt={event.name}
-                            className="w-full h-full object-cover"
-                            loading="lazy"
+                      {ICON_CHOICES.map((opt) => (
+                        <label key={opt.key} className="flex items-center gap-3 py-2 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={!!activeIconFilters[opt.key]}
+                            onChange={(e) =>
+                              setActiveIconFilters((prev) => ({
+                                ...prev,
+                                [opt.key]: e.target.checked,
+                              }))
+                            }
                           />
-                        ) : null}
-                      </div>
+                          <span className="text-sm text-white/70 font-body">{opt.label}</span>
+                        </label>
+                      ))}
 
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-body text-white font-medium truncate">
-                          {event.name}
-                        </p>
-                        <p className="text-xs text-white/40 font-body truncate">
-                          {event.venue}
-                        </p>
-                      </div>
+                      <div className="mt-4 flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setActiveIconFilters({
+                              ticket: true,
+                              music: true,
+                              sparkles: true,
+                              food: true,
+                              map: true,
+                            })
+                          }
+                          className="flex-1 text-xs bg-white/5 hover:bg-white/10 border border-white/10 text-white/60 hover:text-white rounded-xl py-2 font-body transition-colors"
+                        >
+                          Select All
+                        </button>
 
-                      <div className="text-right shrink-0">
-                        <p className="text-xs text-primary font-body font-medium whitespace-nowrap">
-                          {event.date}
-                        </p>
-                        {hasConflict && (
-                          <p className="text-[11px] text-red-400 font-body mt-1 whitespace-nowrap">
-                            Time conflict
-                          </p>
-                        )}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setActiveIconFilters({
+                              ticket: false,
+                              music: false,
+                              sparkles: false,
+                              food: false,
+                              map: false,
+                            })
+                          }
+                          className="flex-1 text-xs bg-white/5 hover:bg-white/10 border border-white/10 text-white/60 hover:text-white rounded-xl py-2 font-body transition-colors"
+                        >
+                          Clear
+                        </button>
                       </div>
 
                       <button
                         type="button"
-                        onClick={() => {
-                          const minuteKey2 = getMinuteKey(event.date)
-                          addStop?.({ ...event, tmId: event.id, minuteKey: minuteKey2 })
-                        }}
+                        onClick={() => setShowFilter(false)}
+                        className="mt-3 w-full text-xs text-white/40 hover:text-white/70 font-body transition-colors"
+                      >
+                        Close
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div
+                ref={eventsListRef}
+                className="space-y-3 max-h-[520px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent"
+              >
+                {visibleUpcomingEvents.map((event) => {
+                  const raw = event.dateRaw || event.date
+                  const minuteKey = event.minuteKey || getMinuteKey(raw)
+                  const hasConflict = minuteKey && itineraryMinuteKeys.has(minuteKey)
+
+                  const iconType = event.iconKey || inferIconTypeFromCategory(event.category)
+
+                  return (
+                    <div key={event.id} className={ROW_CLASS}>
+                      <div className="w-10 h-10 rounded-lg bg-cyan-glow/10 text-cyan-glow flex items-center justify-center shrink-0">
+                        {getCategoryIcon(event.category, iconType)}
+                      </div>
+
+                      <div className="w-12 h-12 rounded-xl overflow-hidden bg-white/5 border border-white/10 shrink-0 flex items-center justify-center">
+                        {event.imageUrl ? (
+                          <img src={event.imageUrl} alt={event.name} className="w-full h-full object-cover" loading="lazy" />
+                        ) : null}
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-body text-white font-medium truncate leading-tight">{event.name}</p>
+                        <p className="text-xs text-white/40 font-body truncate leading-tight mt-1">{event.venue}</p>
+                      </div>
+
+                      <div className="text-right shrink-0">
+                        <p className="text-xs text-primary font-body font-medium whitespace-nowrap leading-tight">{event.date}</p>
+                        {hasConflict && <p className="text-[11px] text-red-400 font-body mt-1 whitespace-nowrap">Time conflict</p>}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          addStop?.({
+                            ...event,
+                            tmId: event.id,
+                            minuteKey,
+                          })
+                        }
                         className="w-9 h-9 rounded-lg bg-white/5 text-white/40 hover:bg-primary/20 hover:text-primary transition-colors shrink-0 flex items-center justify-center"
                         title="Add to itinerary"
                       >
@@ -588,30 +803,32 @@ export default function Builder() {
                   )
                 })}
 
-                {loadingEvents && (
-                  <p className="text-xs text-white/30 font-body pt-2 text-center">
-                    Loading more…
-                  </p>
-                )}
+                {loadingEvents && <p className="text-xs text-white/30 font-body pt-2 text-center">Loading more…</p>}
 
                 {!loadingEvents && visibleUpcomingEvents.length === 0 && (
-                  <p className="text-xs text-white/30 font-body pt-2 text-center">
-                    No more events to show.
-                  </p>
+                  <p className="text-xs text-white/30 font-body pt-2 text-center">No events match your filters.</p>
+                )}
+
+                {/* Infinite scroll sentinel */}
+                <div ref={loadMoreSentinelRef} className="h-1" />
+
+                {!loadingEvents && hasMoreEvents && visibleUpcomingEvents.length > 0 && (
+                  <p className="text-[11px] text-white/20 font-body pt-2 text-center">Scroll for more…</p>
+                )}
+
+                {!loadingEvents && !hasMoreEvents && visibleUpcomingEvents.length > 0 && (
+                  <p className="text-[11px] text-white/20 font-body pt-2 text-center">You’re all caught up.</p>
                 )}
               </div>
-
-              {!apiKey && (
-                <p className="text-xs text-white/30 font-body pt-3 text-center">
-                  Add VITE_TICKETMASTER_KEY to your .env to load real events.
-                </p>
-              )}
             </div>
           </section>
+
+          {/* ===== SHARED CALENDAR WIDGET ===== */}
+          <CalendarWidget />
+
         </div>
       </main>
 
-      {/* ===== Custom Event Modal ===== */}
       {showCustomModal && (
         <div
           className="fixed inset-0 z-[999] flex items-center justify-center px-4"
@@ -629,12 +846,8 @@ export default function Builder() {
           <div className="relative w-full max-w-lg bg-surface/90 border border-white/10 rounded-2xl p-6 shadow-xl">
             <div className="flex items-start justify-between gap-4 mb-4">
               <div>
-                <h3 className="text-xl font-heading font-semibold text-white">
-                  Add custom event
-                </h3>
-                <p className="text-sm text-white/50 font-body mt-1">
-                  Create something that’s not on Ticketmaster.
-                </p>
+                <h3 className="text-xl font-heading font-semibold text-white">Add custom event</h3>
+                <p className="text-sm text-white/50 font-body mt-1">Create something that's not on Ticketmaster.</p>
               </div>
 
               <button
@@ -644,7 +857,6 @@ export default function Builder() {
                   resetCustomModal()
                 }}
                 className="w-9 h-9 rounded-lg bg-white/5 text-white/40 hover:bg-white/10 hover:text-white transition-colors flex items-center justify-center"
-                aria-label="Close"
               >
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -654,9 +866,7 @@ export default function Builder() {
 
             <form onSubmit={submitCustomEvent} className="space-y-5">
               <div>
-                <label className="block text-sm text-white/70 font-body mb-2">
-                  Event name
-                </label>
+                <label className="block text-sm text-white/70 font-body mb-2">Event name</label>
                 <input
                   value={customName}
                   onChange={(e) => setCustomName(e.target.value)}
@@ -667,9 +877,7 @@ export default function Builder() {
               </div>
 
               <div>
-                <label className="block text-sm text-white/70 font-body mb-2">
-                  Start date & time
-                </label>
+                <label className="block text-sm text-white/70 font-body mb-2">Start date & time</label>
                 <input
                   type="datetime-local"
                   value={customDateTime}
@@ -680,9 +888,7 @@ export default function Builder() {
               </div>
 
               <div>
-                <label className="block text-sm text-white/70 font-body mb-2">
-                  Choose an icon
-                </label>
+                <label className="block text-sm text-white/70 font-body mb-2">Choose an icon</label>
 
                 <div className="grid grid-cols-5 gap-3">
                   {ICON_CHOICES.map(({ key, label, Icon }) => {
@@ -698,7 +904,6 @@ export default function Builder() {
                             ? 'bg-cyan-glow/10 border-cyan-glow/40 text-cyan-glow'
                             : 'bg-white/5 border-white/10 text-white/50 hover:bg-white/8 hover:text-white/70',
                         ].join(' ')}
-                        title={label}
                       >
                         <div className="w-10 h-10 rounded-lg bg-black/10 flex items-center justify-center">
                           <Icon className="w-5 h-5" />
@@ -731,6 +936,20 @@ export default function Builder() {
               </div>
             </form>
           </div>
+        </div>
+      )}
+
+      {/* ===== TOAST NOTIFICATION ===== */}
+      {toastMessage && (
+        <div className="fixed bottom-8 left-1/2 transform -translate-x-1/2 bg-surface/90 backdrop-blur-md border border-cyan-glow/30 text-white px-6 py-3 rounded-full shadow-2xl z-[100] flex items-center gap-3 animate-fade-in">
+          <div className="w-6 h-6 rounded-full bg-cyan-glow/20 flex items-center justify-center text-cyan-glow shrink-0">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+          <span className="font-body text-sm font-medium tracking-wide">
+            {toastMessage}
+          </span>
         </div>
       )}
     </div>
