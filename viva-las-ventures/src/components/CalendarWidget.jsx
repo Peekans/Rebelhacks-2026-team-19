@@ -15,61 +15,9 @@ function parseLocalDateTime(dateStr) {
   return new Date(y, m - 1, d, hh, mm, ss || 0)
 }
 
-function calculateEventLayout(dayEvents, eventDurationHours = 1.5) {
-  const eventsWithTime = dayEvents
-    .map((stop) => {
-      const dt = parseLocalDateTime(stop.dateRaw)
-      const startHour = dt ? dt.getHours() + dt.getMinutes() / 60 : 0
-      const endHour = startHour + eventDurationHours
-      return { ...stop, dt, startHour, endHour }
-    })
-    .sort((a, b) => a.startHour - b.startHour)
 
-  const groups = []
-  let currentGroup = []
-  let currentGroupEnd = 0
 
-  eventsWithTime.forEach((ev) => {
-    if (currentGroup.length === 0) {
-      currentGroup.push(ev)
-      currentGroupEnd = ev.endHour
-    } else if (ev.startHour < currentGroupEnd) {
-      currentGroup.push(ev)
-      currentGroupEnd = Math.max(currentGroupEnd, ev.endHour)
-    } else {
-      groups.push(currentGroup)
-      currentGroup = [ev]
-      currentGroupEnd = ev.endHour
-    }
-  })
-  if (currentGroup.length > 0) groups.push(currentGroup)
 
-  const layoutEvents = []
-  groups.forEach((group) => {
-    const columns = []
-    
-    group.forEach((ev) => {
-      let colIndex = columns.findIndex((col) => {
-        const lastInCol = col[col.length - 1]
-        return ev.startHour >= lastInCol.endHour
-      })
-
-      if (colIndex === -1) {
-        colIndex = columns.length
-        columns.push([])
-      }
-      columns[colIndex].push(ev)
-      ev.colIndex = colIndex
-    })
-
-    const numCols = columns.length
-    group.forEach((ev) => {
-      layoutEvents.push({ ...ev, numCols })
-    })
-  })
-
-  return layoutEvents
-}
 
 /* ============================= */
 /* Icons */
@@ -113,10 +61,69 @@ function IconDownload(props) {
 export default function CalendarWidget() {
   const { itinerary } = useItinerary()
   const [calendarStartDate, setCalendarStartDate] = useState(() => new Date())
+  const [dayEvents, setDayEvents] = useState([])
 
   const VISUAL_DURATION = 1.5
   const HOUR_HEIGHT = 64
   const CALENDAR_TOTAL_HEIGHT = 24 * HOUR_HEIGHT
+
+  function calculateEventLayout(dayEvents) {
+    const eventsWithTime = dayEvents
+      .map((stop) => {
+        print(stop.durationMinutes)
+        const dt = parseLocalDateTime(stop.dateRaw)
+        const startHour = dt ? dt.getHours() + dt.getMinutes() / 60 : 0
+        const durationHours = (stop.durationMinutes ?? 90) / 60
+        const endHour = startHour + durationHours
+        return { ...stop, dt, startHour, endHour }
+      })
+      .sort((a, b) => a.startHour - b.startHour)
+
+    const groups = []
+    let currentGroup = []
+    let currentGroupEnd = 0
+
+    eventsWithTime.forEach((ev) => {
+      if (currentGroup.length === 0) {
+        currentGroup.push(ev)
+        currentGroupEnd = ev.endHour
+      } else if (ev.startHour < currentGroupEnd) {
+        currentGroup.push(ev)
+        currentGroupEnd = Math.max(currentGroupEnd, ev.endHour)
+      } else {
+        groups.push(currentGroup)
+        currentGroup = [ev]
+        currentGroupEnd = ev.endHour
+      }
+    })
+    if (currentGroup.length > 0) groups.push(currentGroup)
+
+    const layoutEvents = []
+    groups.forEach((group) => {
+      const columns = []
+      
+      group.forEach((ev) => {
+        let colIndex = columns.findIndex((col) => {
+          const lastInCol = col[col.length - 1]
+          return ev.startHour >= lastInCol.endHour
+        })
+
+        if (colIndex === -1) {
+          colIndex = columns.length
+          columns.push([])
+        }
+        columns[colIndex].push(ev)
+        ev.colIndex = colIndex
+      })
+
+      const numCols = columns.length
+      group.forEach((ev) => {
+        layoutEvents.push({ ...ev, numCols })
+      })
+    })
+
+    return layoutEvents
+  }
 
   const shiftCalendar = (days) => {
     setCalendarStartDate((prev) => {
@@ -133,6 +140,11 @@ export default function CalendarWidget() {
       return d
     })
   }, [calendarStartDate])
+
+  const layoutEvents = useMemo(() => {
+    console.log("i hear a change");
+  return calculateEventLayout(dayEvents)
+}, [dayEvents])
 
   const headerDateRange = `${calendarDays[0].toLocaleDateString('en-US', {
     month: 'short',
@@ -161,7 +173,7 @@ export default function CalendarWidget() {
       )
     })
   }
-
+ 
   function handleExportCalendar() {
     if (itinerary.length === 0) return
 
@@ -200,6 +212,41 @@ export default function CalendarWidget() {
     document.body.removeChild(link)
     URL.revokeObjectURL(url) 
   }
+
+  {/* added resizing function */}
+
+    const startResize = (e, stop) => {
+      e.stopPropagation()
+
+      const startY = e.clientY
+      const startDuration = stop.durationMinutes ?? 90
+
+      const onMouseMove = (moveEvent) => {
+        const deltaY = moveEvent.clientY - startY
+        const deltaMinutesRaw = (deltaY / HOUR_HEIGHT) * 60
+
+        // snap to 30 min
+        const snappedDelta = Math.round(deltaMinutesRaw / 30) * 30
+
+        const newDuration = Math.max(30, startDuration + snappedDelta)
+
+        setDayEvents(prev =>
+          prev.map(ev =>
+            ev.id === stop.id
+              ? { ...ev, durationMinutes: newDuration }
+              : ev
+          )
+        )
+      }
+
+      const onMouseUp = () => {
+        window.removeEventListener('mousemove', onMouseMove)
+        window.removeEventListener('mouseup', onMouseUp)
+      }
+
+      window.addEventListener('mousemove', onMouseMove)
+      window.addEventListener('mouseup', onMouseUp)
+    }
 
   return (
     <section className="mt-8 animate-fade-in-up">
@@ -278,11 +325,13 @@ export default function CalendarWidget() {
 
               {calendarDays.map((day, i) => {
                 const dayEventsRaw = getEventsForDay(day)
-                const layoutEvents = calculateEventLayout(dayEventsRaw, VISUAL_DURATION)
+                const layoutEvents = calculateEventLayout(dayEventsRaw)
 
                 return (
                   <div key={i} className="relative border-r border-white/5 last:border-0 z-10">
+                    {/* aim to change */}
                     {layoutEvents.map((stop) => {
+                      
                       const topPx = stop.startHour * HOUR_HEIGHT
                       const isCustom = String(stop.category || '').toLowerCase() === 'custom'
                       const widthPct = 100 / stop.numCols
@@ -296,7 +345,7 @@ export default function CalendarWidget() {
                           `}
                           style={{ 
                             top: topPx, 
-                            height: HOUR_HEIGHT * VISUAL_DURATION,
+                            height: HOUR_HEIGHT * (stop.endHour - stop.startHour),
                             left: `calc(${leftPct}% + 4px)`,
                             width: `calc(${widthPct}% - 8px)`
                           }}
@@ -311,6 +360,10 @@ export default function CalendarWidget() {
                           <p className="text-[10px] text-white/90 mt-1 font-mono">
                             {stop.dt ? stop.dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : ''}
                           </p>
+                          <div
+                            className="absolute bottom-0 left-0 right-0 h-2 cursor-ns-resize bg-black/20 hover:bg-black/40"
+                            onMouseDown={(e) => startResize(e, stop)}
+                          />
                         </div>
                       )
                     })}

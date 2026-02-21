@@ -2,6 +2,9 @@ import express from 'express';
 import cors from 'cors';
 import OpenAI from 'openai';
 
+import 'dotenv/config';
+
+
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -10,10 +13,11 @@ let conversationHistory = [
   { role: 'system', content: 'You\'re an assistant that is helping to plan a Las Vegas itinerary plan.' }
 ];
 
+console.log(process.env.OPENAI_API_KEY)
 
 const openai = new OpenAI({
     baseURL: 'https://api.featherless.ai/v1',
-     apiKey: 'rc_cbd191359c10aa61c1c4ab4d6a4d3c62334ee513f7c5fc47b58a7eebd8a56855' 
+     apiKey: process.env.OPENAI_API_KEY, 
     });
 
 app.post('/api/chat', async (req, res) => {
@@ -26,7 +30,7 @@ app.post('/api/chat', async (req, res) => {
     console.log(conversationHistory)
     const completion = await openai.chat.completions.create({
     
-      model: 'Qwen/Qwen2.5-7B-Instruct',
+      model: 'meta-llama/Meta-Llama-3.1-8B-Instruct',
       messages: conversationHistory,
     });
     console.log('OpenAI response:', completion.choices[0].message.content); // debug
