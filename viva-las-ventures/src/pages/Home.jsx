@@ -1,17 +1,7 @@
-/**
- * Home Page
- *
- * Main dashboard after login. Displays:
- * - Navbar with logo and user name
- * - Greeting with time-of-day awareness
- * - Quick-action cards (Browse Events, Build Itinerary, AI Concierge)
- *
- * NOTE: The itinerary + upcoming events panels were moved into /builder.
- */
-
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import Logo from '../components/logo'
+import CalendarWidget from '../components/CalendarWidget'
 
 function getGreeting() {
   const hour = new Date().getHours()
@@ -30,12 +20,7 @@ function getUserDisplayName(user) {
 const ACTION_CARDS = [
   {
     title: 'Build Itinerary',
-<<<<<<< Updated upstream
-    description:
-      'Drag and drop events, restaurants, and attractions into your perfect day plan.',
-=======
     description: 'Add events, restaurants, and attractions into your perfect day plan.',
->>>>>>> Stashed changes
     icon: (
       <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
         <path
@@ -45,7 +30,7 @@ const ACTION_CARDS = [
         />
       </svg>
     ),
-    link: '/builder', // panels live on Builder, not Home
+    link: '/builder',
   },
   {
     title: 'AI Concierge',
@@ -59,7 +44,7 @@ const ACTION_CARDS = [
         />
       </svg>
     ),
-    link: '#',
+    link: '/concierge',
   },
 ]
 
@@ -70,7 +55,6 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-background overflow-hidden">
-      {/* ===== NAVBAR ===== */}
       <nav className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-md border-b border-white/5">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           <Link to="/home" className="flex items-center gap-3">
@@ -93,25 +77,16 @@ export default function Home() {
         </div>
       </nav>
 
-      {/* ===== MAIN CONTENT ===== */}
       <main className="pt-24 pb-16 px-6">
         <div className="max-w-7xl mx-auto">
-          {/* ===== GREETING ===== */}
           <section className="mb-12 animate-fade-in-up">
             <h1 className="text-4xl sm:text-5xl font-heading font-bold text-white mb-3">
               {greeting}, <span className="text-primary">{displayName}</span>
             </h1>
-<<<<<<< Updated upstream
-            <p className="text-lg text-white/50 font-body">
-              What would you like to do today?
-            </p>
-=======
             <p className="text-lg text-white/50 font-body">How would you like to start your adventure in Las Vegas today?</p>
->>>>>>> Stashed changes
           </section>
 
-          {/* ===== ACTION CARDS ===== */}
-          <section className="grid grid-cols-1 md:grid-cols-2 gap-10 w-full">
+          <section className="grid grid-cols-1 md:grid-cols-2 gap-10 w-full mb-12">
             {ACTION_CARDS.map((card, i) => (
               <Link
                 key={card.title}
@@ -133,10 +108,11 @@ export default function Home() {
               </Link>
             ))}
           </section>
+
+          <CalendarWidget />
         </div>
       </main>
 
-      {/* ===== FOOTER ===== */}
       <footer className="border-t border-white/5 py-8 px-6">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-3">

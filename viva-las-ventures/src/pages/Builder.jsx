@@ -1,5 +1,5 @@
 /**
- * Builder Page
+ * Builder Page — Drag-and-Drop Itinerary Builder
  *
  * Features:
  * - Ticketmaster Upcoming Events + images
@@ -10,22 +10,47 @@
  * - Custom events have NO picture
  * - Itinerary separated into "Events" and "Custom Events"
  * - Filter Upcoming Events by icon type
- * - Load More at bottom
- * - Robust human-friendly time formatting
- *
- * NOTE:
- * - Prices are intentionally removed (no price text shown anywhere).
- * - Month/day selection UI has been reverted/removed.
+ * - Load More moved to bottom and centered
+ * - Human-friendly time formatting
+ * - Auto-scroll on Load More
+ * - Shared Calendar Widget integration
+ * - Firebase save/load itinerary
+ * - Toast notifications
  */
 
 import { Link } from 'react-router-dom'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useItinerary } from '../context/ItineraryContext'
 import Logo from '../components/logo'
+import CalendarWidget from '../components/CalendarWidget'
+import { doc, setDoc, getDoc } from 'firebase/firestore'
+import { db } from '../lib/firebase'
 
 /* ============================= */
-/* Helpers */
+/* Firebase helpers              */
+/* ============================= */
+
+const saveItineraryToFirestore = async (currentUser, itinerary) => {
+  if (!currentUser) {
+    alert('You must be logged in to save your itinerary.')
+    return
+  }
+
+  try {
+    const itineraryRef = doc(db, 'itineraries', currentUser.uid)
+    await setDoc(itineraryRef, {
+      stops: itinerary,
+      updatedAt: new Date().toISOString()
+    }, { merge: true })
+  } catch (error) {
+    console.error('Error saving to Firestore:', error)
+    throw error
+  }
+}
+
+/* ============================= */
+/* Helpers                       */
 /* ============================= */
 
 function getUserDisplayName(user) {
@@ -99,8 +124,7 @@ function formatEventDate(dateStr) {
   const datePart = dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
   if (isDateOnly) return datePart
 
-  const timePart = dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
-  return `${datePart} • ${timePart}`
+  return str.replace(',', ' •')
 }
 
 function getMinuteKey(dateStr) {
@@ -135,14 +159,14 @@ function normalizeTicketmasterEvent(e) {
   const venue = e?._embedded?.venues?.[0]?.name || e?._embedded?.venues?.[0]?.address?.line1 || 'Unknown venue'
 
   const localDate = e?.dates?.start?.localDate || ''
-  const localTime = e?.dates?.start?.localTime || ''
-  const isoDateTime = e?.dates?.start?.dateTime || ''
+  let localTime = e?.dates?.start?.localTime || ''
 
-  let dateRaw = 'Time TBD'
-  if (localDate && localTime) dateRaw = `${localDate} ${localTime}`
-  else if (localDate) dateRaw = localDate
-  else if (isoDateTime) dateRaw = isoDateTime
+  // Default time if Ticketmaster only provides a date.
+  if (localDate && !localTime) {
+    localTime = '12:00:00'
+  }
 
+  const dateRaw = [localDate, localTime].filter(Boolean).join(' ') || 'Time TBD'
   const date = dateRaw === 'Time TBD' ? 'Time TBD' : formatEventDate(dateRaw)
   const minuteKey = dateRaw === 'Time TBD' ? '' : getMinuteKey(dateRaw)
 
@@ -160,7 +184,7 @@ function normalizeTicketmasterEvent(e) {
 }
 
 /* ============================= */
-/* Icons */
+/* Icons                         */
 /* ============================= */
 
 function IconTicket(props) {
@@ -242,18 +266,23 @@ function getCategoryIcon(category, iconKeyOrType) {
 }
 
 /* ============================= */
-/* Component */
+/* Component                     */
 /* ============================= */
 
 export default function Builder() {
   const { currentUser, logout } = useAuth()
   const displayName = getUserDisplayName(currentUser)
-  const { itinerary, addStop, removeStop } = useItinerary()
+  const { itinerary, addStop, removeStop, clearItinerary } = useItinerary()
 
   const [upcomingEvents, setUpcomingEvents] = useState([])
   const [page, setPage] = useState(0)
   const [loadingEvents, setLoadingEvents] = useState(false)
 
+  // Auto-scroll ref
+  const eventsListRef = useRef(null)
+  const prevEventCount = useRef(0)
+
+  // Filter UI
   const [showFilter, setShowFilter] = useState(false)
   const [activeIconFilters, setActiveIconFilters] = useState({
     ticket: true,
@@ -268,7 +297,14 @@ export default function Builder() {
   const [customDateTime, setCustomDateTime] = useState('')
   const [customIconKey, setCustomIconKey] = useState('ticket')
 
+  // Toast
+  const [toastMessage, setToastMessage] = useState('')
+
   const apiKey = import.meta.env.VITE_TICKETMASTER_KEY || ''
+
+  /* ============================= */
+  /* Fetch Ticketmaster events     */
+  /* ============================= */
 
   useEffect(() => {
     let cancelled = false
@@ -311,6 +347,67 @@ export default function Builder() {
     }
   }, [apiKey, page])
 
+  /* ============================= */
+  /* Firebase load on mount        */
+  /* ============================= */
+
+  useEffect(() => {
+    if (currentUser) {
+      loadItineraryFromFirestore()
+    } else {
+      if (clearItinerary) clearItinerary()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser])
+
+  const loadItineraryFromFirestore = async () => {
+    if (!currentUser) return
+
+    try {
+      if (clearItinerary) clearItinerary()
+      const itineraryRef = doc(db, 'itineraries', currentUser.uid)
+      const docSnap = await getDoc(itineraryRef)
+
+      if (docSnap.exists()) {
+        const savedData = docSnap.data()
+        if (savedData.stops && savedData.stops.length > 0) {
+          savedData.stops.forEach((stop) => {
+            addStop?.(stop)
+          })
+        }
+      } else {
+        console.log('No saved itinerary found for this user.')
+      }
+    } catch (error) {
+      console.error('Error loading itinerary from Firestore:', error)
+    }
+  }
+
+  /* ============================= */
+  /* Toast helper                  */
+  /* ============================= */
+
+  const showToast = (message) => {
+    setToastMessage(message)
+    setTimeout(() => {
+      setToastMessage('')
+    }, 3000)
+  }
+
+  const handleSaveItinerary = async () => {
+    try {
+      await saveItineraryToFirestore(currentUser, itinerary)
+      showToast('Itinerary saved successfully!')
+    } catch (error) {
+      console.error(error)
+      showToast('Error saving itinerary.')
+    }
+  }
+
+  /* ============================= */
+  /* Derived data                  */
+  /* ============================= */
+
   const itineraryTmIds = useMemo(() => {
     const s = new Set()
     for (const stop of itinerary) {
@@ -338,6 +435,14 @@ export default function Builder() {
     })
   }, [upcomingEvents, itineraryTmIds, activeIconFilters])
 
+  // Automatically scroll down the Upcoming Events container when new pages are added
+  useEffect(() => {
+    if (page > 0 && eventsListRef.current && visibleUpcomingEvents.length > prevEventCount.current) {
+      eventsListRef.current.scrollBy({ top: 350, behavior: 'smooth' })
+    }
+    prevEventCount.current = visibleUpcomingEvents.length
+  }, [visibleUpcomingEvents, page])
+
   const { nonCustomStops, customStops } = useMemo(() => {
     const nonCustom = []
     const custom = []
@@ -348,6 +453,10 @@ export default function Builder() {
     }
     return { nonCustomStops: nonCustom, customStops: custom }
   }, [itinerary])
+
+  /* ============================= */
+  /* Actions                       */
+  /* ============================= */
 
   function resetCustomModal() {
     setCustomName('')
@@ -408,9 +517,9 @@ export default function Builder() {
         )}
 
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-body text-white truncate leading-tight">{stop.name}</p>
-          {stop.venue && <p className="text-xs text-white/40 font-body truncate leading-tight mt-1">{stop.venue}</p>}
-          {stop.date && <p className="text-xs text-primary/80 font-body truncate leading-tight mt-1">{stop.date}</p>}
+          <p className="text-sm font-body text-white truncate">{stop.name}</p>
+          {stop.venue && <p className="text-xs text-white/40 font-body truncate">{stop.venue}</p>}
+          {(stop.date) && <p className="text-xs text-primary/80 font-body truncate">{stop.date}</p>}
         </div>
 
         <button
@@ -469,9 +578,24 @@ export default function Builder() {
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-2xl font-heading font-semibold text-white">Your Itinerary</h2>
 
-                <button type="button" onClick={() => setShowCustomModal(true)} className={PILL}>
-                  + Custom
-                </button>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowCustomModal(true)}
+                    className="text-sm bg-white/5 hover:bg-white/10 border border-white/10 text-white/70 hover:text-white px-4 py-2 rounded-full transition-colors font-body"
+                  >
+                    + Custom
+                  </button>
+
+                  {/* SAVE BUTTON */}
+                  <button
+                    type="button"
+                    onClick={handleSaveItinerary}
+                    className="text-sm bg-cyan-glow/15 hover:bg-cyan-glow/25 border border-cyan-glow/30 text-cyan-glow px-4 py-2 rounded-full transition-colors font-body"
+                  >
+                    Save to Calendar
+                  </button>
+                </div>
               </div>
 
               {itinerary.length === 0 ? (
@@ -479,7 +603,7 @@ export default function Builder() {
                   <p className="text-white/40 font-body text-sm">No stops added yet</p>
                 </div>
               ) : (
-                <div className="max-h-[520px] overflow-y-auto pr-1">
+                <div className="max-h-[520px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
                   <div className="mb-4">
                     <div className="flex items-center justify-between px-1 mb-3">
                       <p className="text-xs tracking-wide uppercase text-white/40 font-body">Events</p>
@@ -594,7 +718,10 @@ export default function Builder() {
                 </div>
               </div>
 
-              <div className="space-y-3 max-h-[520px] overflow-y-auto pr-1">
+              <div
+                ref={eventsListRef}
+                className="space-y-3 max-h-[520px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent"
+              >
                 {visibleUpcomingEvents.map((event) => {
                   const raw = event.dateRaw || event.date
                   const minuteKey = event.minuteKey || getMinuteKey(raw)
@@ -656,12 +783,12 @@ export default function Builder() {
                   Load More
                 </button>
               </div>
-
-              {!apiKey && (
-                <p className="text-xs text-white/30 font-body pt-3 text-center">Add VITE_TICKETMASTER_KEY to your .env to load real events.</p>
-              )}
             </div>
           </section>
+
+          {/* ===== SHARED CALENDAR WIDGET ===== */}
+          <CalendarWidget />
+
         </div>
       </main>
 
@@ -683,7 +810,7 @@ export default function Builder() {
             <div className="flex items-start justify-between gap-4 mb-4">
               <div>
                 <h3 className="text-xl font-heading font-semibold text-white">Add custom event</h3>
-                <p className="text-sm text-white/50 font-body mt-1">Create something that’s not on Ticketmaster.</p>
+                <p className="text-sm text-white/50 font-body mt-1">Create something that's not on Ticketmaster.</p>
               </div>
 
               <button
@@ -693,7 +820,6 @@ export default function Builder() {
                   resetCustomModal()
                 }}
                 className="w-9 h-9 rounded-lg bg-white/5 text-white/40 hover:bg-white/10 hover:text-white transition-colors flex items-center justify-center"
-                aria-label="Close"
               >
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -741,7 +867,6 @@ export default function Builder() {
                             ? 'bg-cyan-glow/10 border-cyan-glow/40 text-cyan-glow'
                             : 'bg-white/5 border-white/10 text-white/50 hover:bg-white/8 hover:text-white/70',
                         ].join(' ')}
-                        title={label}
                       >
                         <div className="w-10 h-10 rounded-lg bg-black/10 flex items-center justify-center">
                           <Icon className="w-5 h-5" />
@@ -774,6 +899,20 @@ export default function Builder() {
               </div>
             </form>
           </div>
+        </div>
+      )}
+
+      {/* ===== TOAST NOTIFICATION ===== */}
+      {toastMessage && (
+        <div className="fixed bottom-8 left-1/2 transform -translate-x-1/2 bg-surface/90 backdrop-blur-md border border-cyan-glow/30 text-white px-6 py-3 rounded-full shadow-2xl z-[100] flex items-center gap-3 animate-fade-in">
+          <div className="w-6 h-6 rounded-full bg-cyan-glow/20 flex items-center justify-center text-cyan-glow shrink-0">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+          <span className="font-body text-sm font-medium tracking-wide">
+            {toastMessage}
+          </span>
         </div>
       )}
     </div>
