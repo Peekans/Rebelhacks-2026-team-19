@@ -11,7 +11,7 @@
 
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import Logo from '../components/logo'
+import Logo from '../components/Logo'
 
 function getGreeting() {
   const hour = new Date().getHours()
