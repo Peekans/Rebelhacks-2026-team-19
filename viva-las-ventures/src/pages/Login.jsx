@@ -20,7 +20,7 @@ import {
 } from "firebase/auth";
 
 import { auth } from "../lib/firebase";
-import Logo from "../components/logo";
+import Logo from "../components/Logo";
 
 export default function Login() {
   const navigate = useNavigate();

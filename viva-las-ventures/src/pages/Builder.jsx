@@ -12,11 +12,16 @@
  * - Itinerary list is separated into "Events" and "Custom Events"
  */
 
+
+
 import { Link } from 'react-router-dom'
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useItinerary } from '../context/ItineraryContext'
-import Logo from '../components/logo'
+import Logo from '../components/Logo'
+// Add these imports at the top
+import { doc, setDoc, getDoc } from 'firebase/firestore'
+import { db } from '../lib/firebase' // Make sure this path matches where your firebase setup file is located
 
 function getUserDisplayName(user) {
   if (!user) return 'Guest'
@@ -75,6 +80,33 @@ function normalizeTicketmasterEvent(e) {
     iconKey: null,
   }
 }
+
+// Add this function inside your Builder component
+const saveItineraryToFirestore = async (currentUser, itinerary) => {
+  if (!currentUser) {
+    alert('You must be logged in to save your itinerary.')
+    return
+  }
+
+  try {
+    // Create a reference to a document in the 'itineraries' collection 
+    // using the user's UID so each user has their own dedicated itinerary document.
+    const itineraryRef = doc(db, 'itineraries', currentUser.uid)
+    
+    // Save the itinerary array to Firestore
+    await setDoc(itineraryRef, {
+      stops: itinerary,
+      updatedAt: new Date().toISOString()
+    }, { merge: true }) // merge: true prevents overwriting other fields if you add them later
+
+    
+  } catch (error) {
+    console.error('Error saving to Firestore:', error)
+    alert('Failed to save itinerary.')
+  }
+}
+
+
 
 const SAMPLE_EVENTS = [
   {
@@ -181,7 +213,7 @@ export default function Builder() {
   const { currentUser, logout } = useAuth()
   const displayName = getUserDisplayName(currentUser)
 
-  const { itinerary, addStop, removeStop } = useItinerary()
+  const { itinerary, addStop, removeStop, clearItinerary } = useItinerary()
 
   const [upcomingEvents, setUpcomingEvents] = useState(SAMPLE_EVENTS)
   const [page, setPage] = useState(0)
@@ -192,6 +224,10 @@ export default function Builder() {
   const [customName, setCustomName] = useState('')
   const [customDateTime, setCustomDateTime] = useState('') // datetime-local
   const [customIconKey, setCustomIconKey] = useState('ticket')
+
+  const [toastMessage, setToastMessage] = useState('')
+
+  
 
   const apiKey =
     (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_TICKETMASTER_KEY) ||
@@ -244,6 +280,61 @@ export default function Builder() {
       cancelled = true
     }
   }, [apiKey, page])
+
+  // Trigger the load function when the component mounts or the user changes
+  useEffect(() => {
+    if (currentUser) {
+      loadItineraryFromFirestore()
+    } else {
+      // CLEAR THE UI IF NO USER IS LOGGED IN
+      if (clearItinerary) clearItinerary()
+    }
+  }, [currentUser, clearItinerary]) // Re-run if the user changes
+
+  const showToast = (message) => {
+    setToastMessage(message)
+    setTimeout(() => {
+      setToastMessage('')
+    }, 3000)
+  }
+
+  const handleSaveItinerary = async (currentUser, itinerary) => {
+    try {
+      await saveItineraryToFirestore(currentUser, itinerary)
+      showToast('Itinerary saved successfully!') // Replaces the alert()
+    } catch (error) {
+      console.error(error)
+      showToast('Error saving itinerary.')
+    }
+  }
+
+  // Add this inside your Builder component
+  const loadItineraryFromFirestore = async () => {
+    if (!currentUser) return
+
+    try {
+      if (clearItinerary) clearItinerary()
+      const itineraryRef = doc(db, 'itineraries', currentUser.uid)
+      const docSnap = await getDoc(itineraryRef)
+
+      if (docSnap.exists()) {
+        const savedData = docSnap.data()
+        
+        // If there are saved stops, load them into your local state
+        if (savedData.stops && savedData.stops.length > 0) {
+          // NOTE: You will need a function like 'setItinerary' from your useItinerary hook
+          // to update the full array at once.
+          savedData.stops.forEach((stop) => {
+            addStop?.(stop) 
+          })
+        }
+      } else {
+        console.log('No saved itinerary found for this user.')
+      }
+    } catch (error) {
+      console.error('Error loading itinerary from Firestore:', error)
+    }
+  }
 
   const itineraryTmIds = useMemo(() => {
     const s = new Set()
@@ -426,18 +517,29 @@ export default function Builder() {
           <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Your Itinerary */}
             <div className="bg-surface/60 border border-white/5 rounded-2xl p-8">
-              <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center justify-between mb-6">
                 <h2 className="text-2xl font-heading font-semibold text-white">
                   Your Itinerary
                 </h2>
 
-                <button
-                  type="button"
-                  onClick={() => setShowCustomModal(true)}
-                  className="text-sm bg-white/5 hover:bg-white/10 border border-white/10 text-white/70 hover:text-white px-4 py-2 rounded-full transition-colors font-body"
-                >
-                  + Custom
-                </button>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowCustomModal(true)}
+                    className="text-sm bg-white/5 hover:bg-white/10 border border-white/10 text-white/70 hover:text-white px-4 py-2 rounded-full transition-colors font-body"
+                  >
+                    + Custom
+                  </button>
+
+                  {/* NEW SAVE BUTTON */}
+                  <button
+                    type="button"
+                    onClick={()=>{handleSaveItinerary(currentUser, itinerary)}}
+                    className="text-sm bg-cyan-glow/15 hover:bg-cyan-glow/25 border border-cyan-glow/30 text-cyan-glow px-4 py-2 rounded-full transition-colors font-body"
+                  >
+                    Save to Calendar
+                  </button>
+                </div>
               </div>
 
               {itinerary.length === 0 ? (
@@ -731,6 +833,21 @@ export default function Builder() {
               </div>
             </form>
           </div>
+        </div>
+      )}
+
+      {/* ===== TOAST NOTIFICATION ===== */}
+      {toastMessage && (
+        <div className="fixed bottom-8 left-1/2 transform -translate-x-1/2 bg-surface/90 backdrop-blur-md border border-cyan-glow/30 text-white px-6 py-3 rounded-full shadow-2xl z-[100] flex items-center gap-3 animate-fade-in">
+          {/* Checkmark Icon */}
+          <div className="w-6 h-6 rounded-full bg-cyan-glow/20 flex items-center justify-center text-cyan-glow shrink-0">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+          <span className="font-body text-sm font-medium tracking-wide">
+            {toastMessage}
+          </span>
         </div>
       )}
     </div>
