@@ -97,7 +97,7 @@ export default function Home() {
               <span className="text-primary">{displayName}</span>
             </h1>
             <p className="text-lg text-white/50 font-body">
-              What would you like to do today?
+              How would you like to start your adventure in Las Vegas today?
             </p>
           </section>
 
