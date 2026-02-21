@@ -124,7 +124,8 @@ function formatEventDate(dateStr) {
   const datePart = dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
   if (isDateOnly) return datePart
 
-  return str.replace(',', ' •')
+  const timePart = dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  return `${datePart} • ${timePart}`
 }
 
 function getMinuteKey(dateStr) {
