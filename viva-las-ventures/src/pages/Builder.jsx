@@ -23,7 +23,7 @@ import { useEffect, useMemo, useState, useRef } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useItinerary } from '../context/ItineraryContext'
 import Logo from '../components/Logo'
-import CalendarWidget from '../components/CalendarWidget'
+import HomeCalendar from '../components/HomeCalendar'
 import { doc, setDoc, getDoc } from 'firebase/firestore'
 import { db } from '../lib/firebase'
 
@@ -825,7 +825,7 @@ export default function Builder() {
           </section>
 
           {/* ===== SHARED CALENDAR WIDGET ===== */}
-          <CalendarWidget />
+          <HomeCalendar />
 
         </div>
       </main>
