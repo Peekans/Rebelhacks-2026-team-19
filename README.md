@@ -45,7 +45,7 @@ VITE_FIREBASE_MESSAGING_SENDER_ID="your_messaging_sender_id"
 
 VITE_FIREBASE_APP_ID="your_firebase_app_id"
 
-TICKETMASTER_API_KEY="your_ticketmaster_key"
+TICKETMASTER_KEY="your_ticketmaster_key"
 
 FEATHERLESS_API_KEY="your_featherless_key"
 
