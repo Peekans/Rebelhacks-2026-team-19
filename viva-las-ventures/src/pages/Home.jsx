@@ -1,17 +1,7 @@
-/**
- * Home Page
- *
- * Main dashboard after login. Displays:
- * - Navbar with logo and user name
- * - Greeting with time-of-day awareness
- * - Quick-action cards (Browse Events, Build Itinerary, AI Concierge)
- *
- * NOTE: The itinerary + upcoming events panels were moved into /builder.
- */
-
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import Logo from '../components/logo'
+import CalendarWidget from '../components/CalendarWidget' // <-- IMPORT WIDGET
 
 function getGreeting() {
   const hour = new Date().getHours()
@@ -37,7 +27,7 @@ const ACTION_CARDS = [
         <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
       </svg>
     ),
-    link: '/builder', // ✅ moved panels into Builder
+    link: '/builder',
   },
   {
     title: 'AI Concierge',
@@ -59,7 +49,6 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-background overflow-hidden">
-      {/* ===== NAVBAR ===== */}
       <nav className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-md border-b border-white/5">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           <Link to="/home" className="flex items-center gap-3">
@@ -87,10 +76,8 @@ export default function Home() {
         </div>
       </nav>
 
-      {/* ===== MAIN CONTENT ===== */}
       <main className="pt-24 pb-16 px-6">
         <div className="max-w-7xl mx-auto">
-          {/* ===== GREETING ===== */}
           <section className="mb-12 animate-fade-in-up">
             <h1 className="text-4xl sm:text-5xl font-heading font-bold text-white mb-3">
               {greeting},{' '}
@@ -101,8 +88,8 @@ export default function Home() {
             </p>
           </section>
 
-          {/* ===== ACTION CARDS ===== */}
-          <section className="grid grid-cols-1 md:grid-cols-2 gap-10 w-full">            {ACTION_CARDS.map((card, i) => (
+          <section className="grid grid-cols-1 md:grid-cols-2 gap-10 w-full mb-12">            
+            {ACTION_CARDS.map((card, i) => (
               <Link
                 key={card.title}
                 to={card.link}
@@ -125,10 +112,13 @@ export default function Home() {
               </Link>
             ))}
           </section>
+
+          {/* ===== NEW CALENDAR WIDGET ===== */}
+          <CalendarWidget />
+
         </div>
       </main>
 
-      {/* ===== FOOTER ===== */}
       <footer className="border-t border-white/5 py-8 px-6">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-3">
