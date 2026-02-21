@@ -1,7 +1,7 @@
 /**
  * AI Concierge Page
  *
- * Chat interface powered by Claude AI for personalized
+ * Chat interface powered by Featherless AI for personalized
  * Las Vegas recommendations, trip planning, and tips.
  */
 
@@ -17,6 +17,165 @@ const SUGGESTED_PROMPTS = [
   'Plan a 3-day Vegas itinerary for first-timers',
   'What shows are worth seeing right now?',
 ]
+
+const API_URL = 'http://localhost:3001/api/chat'
+
+/**
+ * Lightweight markdown renderer — handles bold, italic, inline code,
+ * code blocks, headers, unordered/ordered lists, and line breaks
+ * without any external dependencies.
+ */
+function renderMarkdown(text) {
+  if (!text) return null
+
+  const lines = text.split('\n')
+  const elements = []
+  let i = 0
+
+  while (i < lines.length) {
+    const line = lines[i]
+
+    // Fenced code block
+    if (line.trimStart().startsWith('```')) {
+      const codeLines = []
+      i++
+      while (i < lines.length && !lines[i].trimStart().startsWith('```')) {
+        codeLines.push(lines[i])
+        i++
+      }
+      i++ // skip closing ```
+      elements.push(
+        <pre
+          key={elements.length}
+          className="bg-black/40 border border-white/10 rounded-lg px-4 py-3 my-2 overflow-x-auto text-xs leading-relaxed text-cyan-glow/90 font-mono"
+        >
+          <code>{codeLines.join('\n')}</code>
+        </pre>
+      )
+      continue
+    }
+
+    // Heading lines
+    const headingMatch = line.match(/^(#{1,3})\s+(.+)/)
+    if (headingMatch) {
+      const level = headingMatch[1].length
+      const cls =
+        level === 1
+          ? 'text-base font-semibold text-white mt-3 mb-1'
+          : level === 2
+            ? 'text-sm font-semibold text-white mt-2 mb-1'
+            : 'text-sm font-medium text-white/90 mt-2 mb-0.5'
+      elements.push(
+        <p key={elements.length} className={cls}>
+          {inlineMarkdown(headingMatch[2])}
+        </p>
+      )
+      i++
+      continue
+    }
+
+    // Unordered list item
+    if (/^\s*[-*]\s+/.test(line)) {
+      const items = []
+      while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) {
+        items.push(lines[i].replace(/^\s*[-*]\s+/, ''))
+        i++
+      }
+      elements.push(
+        <ul key={elements.length} className="list-disc list-inside space-y-1 my-1.5 text-white/85">
+          {items.map((item, idx) => (
+            <li key={idx}>{inlineMarkdown(item)}</li>
+          ))}
+        </ul>
+      )
+      continue
+    }
+
+    // Ordered list item
+    if (/^\s*\d+[.)]\s+/.test(line)) {
+      const items = []
+      while (i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i])) {
+        items.push(lines[i].replace(/^\s*\d+[.)]\s+/, ''))
+        i++
+      }
+      elements.push(
+        <ol key={elements.length} className="list-decimal list-inside space-y-1 my-1.5 text-white/85">
+          {items.map((item, idx) => (
+            <li key={idx}>{inlineMarkdown(item)}</li>
+          ))}
+        </ol>
+      )
+      continue
+    }
+
+    // Blank line → spacer
+    if (line.trim() === '') {
+      elements.push(<div key={elements.length} className="h-2" />)
+      i++
+      continue
+    }
+
+    // Regular paragraph
+    elements.push(
+      <p key={elements.length} className="my-0.5 text-white/85">
+        {inlineMarkdown(line)}
+      </p>
+    )
+    i++
+  }
+
+  return elements
+}
+
+/** Render inline markdown: **bold**, *italic*, `code` */
+function inlineMarkdown(text) {
+  // Split on inline patterns, preserving delimiters
+  const parts = []
+  // Process bold, italic, and code in order of specificity
+  const regex = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`)/g
+  let lastIndex = 0
+  let match
+
+  while ((match = regex.exec(text)) !== null) {
+    // Push text before match
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index))
+    }
+    if (match[2]) {
+      // **bold**
+      parts.push(
+        <strong key={parts.length} className="font-semibold text-white">
+          {match[2]}
+        </strong>
+      )
+    } else if (match[3]) {
+      // *italic*
+      parts.push(
+        <em key={parts.length} className="italic text-white/80">
+          {match[3]}
+        </em>
+      )
+    } else if (match[4]) {
+      // `code`
+      parts.push(
+        <code
+          key={parts.length}
+          className="bg-white/10 text-cyan-glow/90 rounded px-1.5 py-0.5 text-xs font-mono"
+        >
+          {match[4]}
+        </code>
+      )
+    }
+    lastIndex = match.index + match[0].length
+  }
+
+  // Remaining text
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex))
+  }
+
+  return parts.length > 0 ? parts : text
+}
 
 export default function Concierge() {
   const { currentUser, logout } = useAuth()
@@ -37,13 +196,6 @@ export default function Concierge() {
     inputRef.current?.focus()
   }, [])
 
-  // Build conversation history for Claude (excludes system messages)
-  function getConversationHistory() {
-    return messages
-      .filter((m) => m.role === 'user' || m.role === 'assistant')
-      .map((m) => ({ role: m.role, content: m.content }))
-  }
-
   async function sendMessage(text) {
     if (!text.trim() || loading) return
 
@@ -55,22 +207,31 @@ export default function Concierge() {
     setLoading(true)
 
     try {
-      const history = getConversationHistory()
-      const response = await chatWithClaude(userMessage, history)
+      const res = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: userMessage }),
+      })
+
+      if (!res.ok) {
+        throw new Error(`Server responded with ${res.status}`)
+      }
+
+      const data = await res.json()
 
       // Add assistant response
       setMessages((prev) => [
         ...prev,
-        { role: 'assistant', content: response },
+        { role: 'assistant', content: data.reply },
       ])
     } catch (err) {
-      console.error('Claude API error:', err)
+      console.error('Chat API error:', err)
       setMessages((prev) => [
         ...prev,
         {
           role: 'assistant',
           content:
-            'Sorry, I ran into a problem. Please check your API key or try again in a moment.',
+            'Sorry, I ran into a problem connecting to the server. Make sure the backend is running (`node server.js` in the backend folder) and try again.',
         },
       ])
     } finally {
@@ -169,7 +330,8 @@ export default function Concierge() {
               key={i}
               className={`flex ${
                 msg.role === 'user' ? 'justify-end' : 'justify-start'
-              }`}
+              } animate-fade-in-up`}
+              style={{ animationDelay: '0ms', animationDuration: '0.3s' }}
             >
               <div
                 className={`max-w-[80%] rounded-2xl px-5 py-3.5 font-body text-sm leading-relaxed ${
@@ -198,15 +360,19 @@ export default function Concierge() {
                     </span>
                   </div>
                 )}
-                {/* Render with line breaks */}
-                <div className="whitespace-pre-wrap">{msg.content}</div>
+                {/* Render messages — markdown for assistant, plain for user */}
+                {msg.role === 'assistant' ? (
+                  <div className="space-y-0.5">{renderMarkdown(msg.content)}</div>
+                ) : (
+                  <div className="whitespace-pre-wrap">{msg.content}</div>
+                )}
               </div>
             </div>
           ))}
 
           {/* Loading indicator */}
           {loading && (
-            <div className="flex justify-start">
+            <div className="flex justify-start animate-fade-in-up" style={{ animationDuration: '0.2s' }}>
               <div className="bg-surface/80 border border-white/5 rounded-2xl px-5 py-3.5">
                 <div className="flex items-center gap-2">
                   <svg
@@ -274,7 +440,7 @@ export default function Concierge() {
             </button>
           </form>
           <p className="text-center text-xs text-white/20 font-body mt-2">
-            Powered by Claude AI • Responses may not always be accurate
+            Powered by Featherless AI — Responses may not always be accurate
           </p>
         </div>
       </main>
