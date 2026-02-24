@@ -1,49 +1,7 @@
-/**
- * Itinerary Context
- *
- * Manages the user's current itinerary (list of stops/events) in memory.
- * Provides add, remove, reorder, and clear operations.
- *
- * =========================================================================
- * DATABASE PERSISTENCE (TODO):
- * This context currently stores the itinerary in React state (in-memory).
- * When the page refreshes, the itinerary is lost. To persist it, you need
- * to integrate with a database.
- *
- * Option A — Firebase Firestore:
- *   1. Import Firestore functions:
- *      import { doc, setDoc, onSnapshot } from 'firebase/firestore'
- *      import { db } from '../lib/firebase'
- *
- *   2. Load itinerary on mount (in the useEffect below):
- *      const unsub = onSnapshot(
- *        doc(db, 'itineraries', currentUser.uid),
- *        (snap) => {
- *          if (snap.exists()) setItinerary(snap.data().stops || [])
- *        }
- *      )
- *      return unsub
- *
- *   3. Save on every change (add a separate useEffect):
- *      useEffect(() => {
- *        if (!currentUser) return
- *        setDoc(doc(db, 'itineraries', currentUser.uid), {
- *          stops: itinerary,
- *          updatedAt: new Date(),
- *        }, { merge: true })
- *      }, [itinerary, currentUser])
- *
- * Option B — REST API / any backend:
- *   1. On mount, GET /api/itineraries/:userId → setItinerary(data.stops)
- *   2. On change, PUT /api/itineraries/:userId with { stops: itinerary }
- *
- * To get the current user, import useAuth:
- *   import { useAuth } from './AuthContext'
- *   const { currentUser } = useAuth()
- * =========================================================================
- */
-
-import { createContext, useContext, useState, useCallback } from 'react'
+import { createContext, useContext, useState, useCallback, useEffect } from 'react'
+import { useAuth } from './AuthContext'
+import { doc, getDoc } from 'firebase/firestore'
+import { db } from '../lib/firebase'
 
 const ItineraryContext = createContext(null)
 
@@ -56,18 +14,48 @@ export function useItinerary() {
 }
 
 export function ItineraryProvider({ children }) {
+  const { currentUser } = useAuth()
   const [itinerary, setItinerary] = useState([])
+
+  // --- THE GLOBAL BRAIN ---
+  useEffect(() => {
+    console.log("🚦 [Context] Auth state changed! Current UID:", currentUser?.uid)
+
+    // 1. If no one is logged in, WIPE the memory clean immediately
+    if (!currentUser?.uid) {
+      console.log("🗑️ [Context] User logged out. Clearing itinerary memory.")
+      setItinerary([])
+      return
+    }
+
+    // 2. Fetch the newly logged-in user's data
+    async function fetchGlobalItinerary() {
+      console.log(`📡 [Context] Fetching database for user: ${currentUser.uid}`)
+      try {
+        const docRef = doc(db, 'itineraries', currentUser.uid)
+        const docSnap = await getDoc(docRef)
+        
+        if (docSnap.exists()) {
+          const savedData = docSnap.data()
+          console.log("✅ [Context] Found saved schedule in DB!", savedData)
+          setItinerary(savedData.stops || [])
+        } else {
+          console.log("⚠️ [Context] No schedule in DB for this user. Setting to empty.")
+          setItinerary([]) 
+        }
+      } catch (error) {
+        console.error('❌ [Context] Failed to load itinerary:', error)
+      }
+    }
+
+    fetchGlobalItinerary()
+  }, [currentUser?.uid]) // <-- CRITICAL FIX: Watch the UID, not the object!
 
   const addStop = useCallback((stop) => {
     setItinerary((prev) => {
-      // If stop has an id (Ticketmaster, your SAMPLE_EVENTS), keep it.
-      // Otherwise generate one for custom stops.
       const stopId = stop?.id != null ? String(stop.id) : crypto.randomUUID()
-
-      // Prevent duplicates by id
       const exists = prev.some((s) => String(s.id) === String(stopId))
       if (exists) return prev
-
       return [...prev, { ...stop, id: stopId }]
     })
   }, [])

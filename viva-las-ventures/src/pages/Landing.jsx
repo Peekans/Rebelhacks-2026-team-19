@@ -40,7 +40,7 @@ const FEATURES = [
     ),
     title: 'Build Itinerary',
     description:
-      'Build your perfect day by adding events, restaurants, and attractions into a timeline. Reorder on the fly — your trip, your rules.',
+      'Plan your perfect day in seconds. Simply tap on events and shows to instantly place them into your timeline.',
   },
   {
     icon: (
