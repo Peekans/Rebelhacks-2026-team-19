@@ -95,5 +95,5 @@ The app should now be running on http://localhost:5173 (or 3000)
 - **Firebase** — Auth (email/password + Google), Firestore database
 - **Tailwind CSS** — utility-first styling with custom Vegas-themed palette
 - **React Router v6** — client-side routing
-- **Anthropic Claude API** (claude-sonnet-4-6) — AI chatbot for trip planning
+- **Featherless AI API** — AI chatbot for trip planning
 - **Ticketmaster Discovery API** — live Las Vegas events and shows
